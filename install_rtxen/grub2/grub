@@ -1,0 +1,15 @@
+# System requirement: Fedora 18 64 bit
+# Modified by Meng Xu, University of Pennsylvania
+#
+# If you change this file, run 'update-grub' OR grub2-mkconfig -o /boot/grub2/grub.cfg afterwards to update
+GRUB_TIMEOUT=10
+GRUB_DISTRIBUTOR="Fedora"
+GRUB_DEFAULT=saved
+GRUB_CMDLINE_LINUX="rd.md=0 rd.dm=0  KEYTABLE=us SYSFONT=True rd.lvm.lv=vg/lv_root rd.luks=0 rd.lvm.lv=vg/lv_swap LANG=en_US.UTF-8 rhgb quiet"
+#RTXen boot option. Change to your own parameter for respective scheduler
+GRUB_CMDLINE_RTXEN_GEDF="dom0_mem=2048M dom0_max_vcpus=1 dom0_vcpus_pin sched=gedf"
+GRUB_CMDLINE_RTXEN_CREDIT="dom0_mem=2048M dom0_max_vcpus=1 dom0_vcpus_pin sched=credit"
+GRUB_CMDLINE_RTXEN_CREDIT2="dom0_mem=2048M dom0_max_vcpus=1 dom0_vcpus_pin sched=credit2"
+
+# Meng:can extend GRUB_CMDLINE_XEN to a list. and then enumerate it from line 174 to 244 in /etc/grub.d/20_linux_xen to generate gedf and credit2
+# GRUB_THEME="/boot/grub2/themes/system/theme.txt"

@@ -1,0 +1,34 @@
+###############################
+RT-Xen 1.0, based on Xen 4.1.4
+###############################
+# System requirement: Fedora 18 (64bit)
+# Using grub2 instead of grub; using grub2-mkconfig to update grub2
+# Have the following files/folder: /usr/sbin/grub2-mkconfig , /etc/default/grub , /etc/grub.d
+# @created 5/28/2013
+# @version 0.1
+# @autor Meng Xu
+# @email mengxu at cis dot upenn dot edu
+
+This is the install script for the RT-Xen 1.0, which is developed based on Xen 4.1.4.
+The ./install_rtxen folder should be place under the folder xen-4.1.4/ to run.
+Please switch to root to run ./install_rtxen.sh to avoid Pemission problems.
+
+Currently ./install_rtxen.sh is only tested working well on Fedora 18 (64bit). 
+The script does the following steps to install RT-Xen:
+1) Compile RT-Xen and install the modules and tools via Xen's installation system;
+2) Generate the correct grub2 entry for RT-Xen:
+	a) Backup your grub2 files;
+	b) Replace the following files: grub2-mkconfig, /etc/grub.d/22_linux_rtxen, /etc/default/grub
+    c) update your grub2 file: /boot/grub2/grub.cfg
+
+You can change the parameters(memory, vcpu number, pin/not-pin) of Domain-0 by modifying the RT-Xen entries in the file /etc/default/grub, and updating the grub.cfg with the command "grub2-mkconfig -o /boot/grub2/grub.cfg"
+
+#If you are using another Linux distribution
+You can refer to ./install_rtxen.sh to generate your own grub2 entries for your system.
+The 22_linux_rtxen script is still valid. 
+The only changes are:
+    a) copying the 22_linux_rtxen to the folder grub.d(where the script to generate grub.cfg) in your system; add the RT-Xen entries into the /etc/default/grub file in your system.
+    b) changing the file (used to update the grub2) to import the RT-Xen parameter in file /etc/default/grub. For example, if you are using grub2-mkconfig to update your grub.cfg, you need to change the script /usr/sbin/grub2-mkconfig. 
+    c) update your grub entries with the command in your own system.
+
+Enjoy~
