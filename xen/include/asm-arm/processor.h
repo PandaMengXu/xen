@@ -2,9 +2,16 @@
 #define __ASM_ARM_PROCESSOR_H
 
 #include <asm/cpregs.h>
+#include <asm/sysregs.h>
 
 /* MIDR Main ID Register */
 #define MIDR_MASK    0xff0ffff0
+
+/* MPIDR Multiprocessor Affinity Register */
+#define MPIDR_UP            (1 << 30)
+#define MPIDR_SMP           (1 << 31)
+#define MPIDR_AFF0_SHIFT    (0)
+#define MPIDR_AFF0_MASK     (0xff << MPIDR_AFF0_SHIFT)
 
 /* TTBCR Translation Table Base Control Register */
 #define TTBCR_EAE    0x80000000
@@ -40,39 +47,47 @@
 #define SCTLR_BASE        0x00c50078
 #define HSCTLR_BASE       0x30c51878
 
+#define PSR_GUEST32_INIT  (PSR_ABT_MASK|PSR_FIQ_MASK|PSR_IRQ_MASK|PSR_MODE_SVC)
+
+#ifdef CONFIG_ARM_64
+#define PSR_GUEST64_INIT (PSR_ABT_MASK|PSR_FIQ_MASK|PSR_IRQ_MASK|PSR_MODE_EL1h)
+#endif
+
 /* HCR Hyp Configuration Register */
-#define HCR_TGE         (1<<27)
-#define HCR_TVM         (1<<26)
-#define HCR_TTLB        (1<<25)
-#define HCR_TPU         (1<<24)
-#define HCR_TPC         (1<<23)
-#define HCR_TSW         (1<<22)
-#define HCR_TAC         (1<<21)
-#define HCR_TIDCP       (1<<20)
-#define HCR_TSC         (1<<19)
-#define HCR_TID3        (1<<18)
-#define HCR_TID2        (1<<17)
-#define HCR_TID1        (1<<16)
-#define HCR_TID0        (1<<15)
-#define HCR_TWE         (1<<14)
-#define HCR_TWI         (1<<13)
-#define HCR_DC          (1<<12)
-#define HCR_BSU_MASK    (3<<10)
+#define HCR_RW          (1<<31) /* Register Width, ARM64 only */
+#define HCR_TGE         (1<<27) /* Trap General Exceptions */
+#define HCR_TVM         (1<<26) /* Trap Virtual Memory Controls */
+#define HCR_TTLB        (1<<25) /* Trap TLB Maintenance Operations */
+#define HCR_TPU         (1<<24) /* Trap Cache Maintenance Operations to PoU */
+#define HCR_TPC         (1<<23) /* Trap Cache Maintenance Operations to PoC */
+#define HCR_TSW         (1<<22) /* Trap Set/Way Cache Maintenance Operations */
+#define HCR_TAC         (1<<21) /* Trap ACTLR Accesses */
+#define HCR_TIDCP       (1<<20) /* Trap lockdown */
+#define HCR_TSC         (1<<19) /* Trap SMC instruction */
+#define HCR_TID3        (1<<18) /* Trap ID Register Group 3 */
+#define HCR_TID2        (1<<17) /* Trap ID Register Group 2 */
+#define HCR_TID1        (1<<16) /* Trap ID Register Group 1 */
+#define HCR_TID0        (1<<15) /* Trap ID Register Group 0 */
+#define HCR_TWE         (1<<14) /* Trap WFE instruction */
+#define HCR_TWI         (1<<13) /* Trap WFI instruction */
+#define HCR_DC          (1<<12) /* Default cacheable */
+#define HCR_BSU_MASK    (3<<10) /* Barrier Shareability Upgrade */
 #define HCR_BSU_NONE     (0<<10)
 #define HCR_BSU_INNER    (1<<10)
 #define HCR_BSU_OUTER    (2<<10)
 #define HCR_BSU_FULL     (3<<10)
-#define HCR_FB          (1<<9)
-#define HCR_VA          (1<<8)
-#define HCR_VI          (1<<7)
-#define HCR_VF          (1<<6)
-#define HCR_AMO         (1<<5)
-#define HCR_IMO         (1<<4)
-#define HCR_FMO         (1<<3)
-#define HCR_PTW         (1<<2)
-#define HCR_SWIO        (1<<1)
-#define HCR_VM          (1<<0)
+#define HCR_FB          (1<<9) /* Force Broadcast of Cache/BP/TLB operations */
+#define HCR_VA          (1<<8) /* Virtual Asynchronous Abort */
+#define HCR_VI          (1<<7) /* Virtual IRQ */
+#define HCR_VF          (1<<6) /* Virtual FIQ */
+#define HCR_AMO         (1<<5) /* Override CPSR.A */
+#define HCR_IMO         (1<<4) /* Override CPSR.I */
+#define HCR_FMO         (1<<3) /* Override CPSR.F */
+#define HCR_PTW         (1<<2) /* Protected Walk */
+#define HCR_SWIO        (1<<1) /* Set/Way Invalidation Override */
+#define HCR_VM          (1<<0) /* Virtual MMU Enable */
 
+#define HSR_EC_UNKNOWN              0x00
 #define HSR_EC_WFI_WFE              0x01
 #define HSR_EC_CP15_32              0x03
 #define HSR_EC_CP15_64              0x04
@@ -83,9 +98,14 @@
 #define HSR_EC_JAZELLE              0x09
 #define HSR_EC_BXJ                  0x0a
 #define HSR_EC_CP14_64              0x0c
-#define HSR_EC_SVC                  0x11
-#define HSR_EC_HVC                  0x12
-#define HSR_EC_SMC                  0x13
+#define HSR_EC_SVC32                0x11
+#define HSR_EC_HVC32                0x12
+#define HSR_EC_SMC32                0x13
+#ifdef CONFIG_ARM_64
+#define HSR_EC_HVC64                0x16
+#define HSR_EC_SMC64                0x17
+#define HSR_EC_SYSREG               0x18
+#endif
 #define HSR_EC_INSTR_ABORT_GUEST    0x20
 #define HSR_EC_INSTR_ABORT_HYP      0x21
 #define HSR_EC_DATA_ABORT_GUEST     0x24
@@ -217,6 +237,15 @@ union hsr {
         unsigned long ec:6;    /* Exception Class */
     };
 
+    /* Common to all conditional exception classes (0x0N, except 0x00). */
+    struct hsr_cond {
+        unsigned long iss:20;  /* Instruction Specific Syndrome */
+        unsigned long cc:4;    /* Condition Code */
+        unsigned long ccvalid:1;/* CC Valid */
+        unsigned long len:1;   /* Instruction length */
+        unsigned long ec:6;    /* Exception Class */
+    } cond;
+
     /* reg, reg0, reg1 are 4 bits on AArch32, the fifth bit is sbzp. */
     struct hsr_cp32 {
         unsigned long read:1;  /* Direction */
@@ -237,12 +266,27 @@ union hsr {
         unsigned long reg1:5;   /* Rt1 */
         unsigned long reg2:5;   /* Rt2 */
         unsigned long sbzp2:1;
-        unsigned long op1:4;   /* Op1 */
-        unsigned long cc:4;    /* Condition Code */
+        unsigned long op1:4;    /* Op1 */
+        unsigned long cc:4;     /* Condition Code */
         unsigned long ccvalid:1;/* CC Valid */
-        unsigned long len:1;   /* Instruction length */
-        unsigned long ec:6;    /* Exception Class */
+        unsigned long len:1;    /* Instruction length */
+        unsigned long ec:6;     /* Exception Class */
     } cp64; /* HSR_EC_CP15_64, HSR_EC_CP14_64 */
+
+#ifdef CONFIG_ARM_64
+    struct hsr_sysreg {
+        unsigned long read:1;   /* Direction */
+        unsigned long crm:4;    /* CRm */
+        unsigned long reg:5;    /* Rt */
+        unsigned long crn:4;    /* CRn */
+        unsigned long op1:3;    /* Op1 */
+        unsigned long op2:3;    /* Op2 */
+        unsigned long op0:2;    /* Op0 */
+        unsigned long res0:3;
+        unsigned long len:1;    /* Instruction length */
+        unsigned long ec:6;
+    } sysreg; /* HSR_EC_SYSREG */
+#endif
 
     struct hsr_dabt {
         unsigned long dfsc:6;  /* Data Fault Status Code */
@@ -285,6 +329,21 @@ union hsr {
 #define HSR_CP64_CRM_MASK (0x0000001e)
 #define HSR_CP64_CRM_SHIFT (1)
 #define HSR_CP64_REGS_MASK (HSR_CP64_OP1_MASK|HSR_CP64_CRM_MASK)
+
+/* HSR.EC == HSR_SYSREG */
+#define HSR_SYSREG_OP0_MASK (0x00300000)
+#define HSR_SYSREG_OP0_SHIFT (20)
+#define HSR_SYSREG_OP1_MASK (0x0001c000)
+#define HSR_SYSREG_OP1_SHIFT (14)
+#define HSR_SYSREG_CRN_MASK (0x00003800)
+#define HSR_SYSREG_CRN_SHIFT (10)
+#define HSR_SYSREG_CRM_MASK (0x0000001e)
+#define HSR_SYSREG_CRM_SHIFT (1)
+#define HSR_SYSREG_OP2_MASK (0x000e0000)
+#define HSR_SYSREG_OP2_SHIFT (17)
+#define HSR_SYSREG_REGS_MASK (HSR_SYSREG_OP0_MASK|HSR_SYSREG_OP1_MASK|\
+                              HSR_SYSREG_CRN_MASK|HSR_SYSREG_CRM_MASK|\
+                              HSR_SYSREG_OP2_MASK)
 
 /* Physical Address Register */
 #define PAR_F           (1<<0)
@@ -344,11 +403,21 @@ union hsr {
 #define CNTx_CTL_PENDING  (1u<<2)  /* IRQ pending */
 
 /* Exception Vector offsets */
+/* ... ARM32 */
 #define VECTOR32_RST  0
 #define VECTOR32_UND  4
 #define VECTOR32_SVC  8
 #define VECTOR32_PABT 12
 #define VECTOR32_DABT 16
+/* ... ARM64 */
+#define VECTOR64_CURRENT_SP0_SYNC  0x000
+#define VECTOR64_CURRENT_SP0_IRQ   0x080
+#define VECTOR64_CURRENT_SP0_FIQ   0x100
+#define VECTOR64_CURRENT_SP0_ERROR 0x180
+#define VECTOR64_CURRENT_SPx_SYNC  0x200
+#define VECTOR64_CURRENT_SPx_IRQ   0x280
+#define VECTOR64_CURRENT_SPx_FIQ   0x300
+#define VECTOR64_CURRENT_SPx_ERROR 0x380
 
 #if defined(CONFIG_ARM_32)
 # include <asm/arm32/processor.h>

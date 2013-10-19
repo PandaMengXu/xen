@@ -28,7 +28,6 @@
 #include <xen/softirq.h>
 #include <xen/timer.h>
 #include <xen/irq.h>
-#include <asm/vfp.h>
 #include <asm/gic.h>
 
 cpumask_t cpu_online_map;
@@ -138,22 +137,19 @@ void __cpuinit start_secondary(unsigned long boot_phys_offset,
                                unsigned long fdt_paddr,
                                unsigned long cpuid)
 {
-    struct cpuinfo_arm *c = cpu_data + cpuid;
-
     memset(get_cpu_info(), 0, sizeof (struct cpu_info));
 
     /* TODO: handle boards where CPUIDs are not contiguous */
     set_processor_id(cpuid);
 
-    *c = boot_cpu_data;
-    identify_cpu(c);
+    current_cpu_data = boot_cpu_data;
+    identify_cpu(&current_cpu_data);
 
     init_traps();
 
     setup_virt_paging();
 
     mmu_init_secondary_cpu();
-    enable_vfp();
 
     gic_init_secondary_cpu();
 
@@ -177,6 +173,7 @@ void __cpuinit start_secondary(unsigned long boot_phys_offset,
     wmb();
 
     local_irq_enable();
+    local_abort_enable();
 
     printk(XENLOG_DEBUG "CPU %u booted.\n", smp_processor_id());
 

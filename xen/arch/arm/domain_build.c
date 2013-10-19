@@ -121,7 +121,8 @@ static int set_memory_reg(struct domain *d, struct kernel_info *kinfo,
         device_tree_set_reg(&new_cell, address_cells, size_cells, start, size);
 
         printk("Populate P2M %#"PRIx64"->%#"PRIx64"\n", start, start + size);
-        p2m_populate_ram(d, start, start + size);
+        if ( p2m_populate_ram(d, start, start + size) < 0 )
+            panic("Failed to populate P2M\n");
         kinfo->mem.bank[kinfo->mem.nr_banks].start = start;
         kinfo->mem.bank[kinfo->mem.nr_banks].size = size;
         kinfo->mem.nr_banks++;
@@ -588,9 +589,7 @@ int construct_dom0(struct domain *d)
 
     memset(regs, 0, sizeof(*regs));
 
-    regs->pc = (uint32_t)kinfo.entry;
-
-    regs->cpsr = PSR_GUEST_INIT;
+    regs->pc = (register_t)kinfo.entry;
 
 #ifdef CONFIG_ARM_64
     d->arch.type = kinfo.type;
@@ -598,6 +597,8 @@ int construct_dom0(struct domain *d)
 
     if ( is_pv32_domain(d) )
     {
+        regs->cpsr = PSR_GUEST32_INIT;
+
         /* FROM LINUX head.S
          *
          * Kernel startup entry point.
@@ -615,6 +616,7 @@ int construct_dom0(struct domain *d)
 #ifdef CONFIG_ARM_64
     else
     {
+        regs->cpsr = PSR_GUEST64_INIT;
         /* From linux/Documentation/arm64/booting.txt */
         regs->x0 = kinfo.dtb_paddr;
         regs->x1 = 0; /* Reserved for future use */
@@ -632,8 +634,6 @@ int construct_dom0(struct domain *d)
             break;
         }
     }
-
-    local_abort_enable();
 
     return 0;
 }

@@ -1861,11 +1861,12 @@ libxl_device_vtpm *libxl_device_vtpm_list(libxl_ctx *ctx, uint32_t domid, int *n
           vtpm->backend_domid = atoi(tmp);
 
           tmp = libxl__xs_read(gc, XBT_NULL, GCSPRINTF("%s/uuid", be_path));
-          if(tmp) {
-             if(libxl_uuid_from_string(&(vtpm->uuid), tmp)) {
-                LOG(ERROR, "%s/uuid is a malformed uuid?? (%s) Probably a bug!!\n", be_path, tmp);
-                exit(1);
-             }
+          if (tmp) {
+              if(libxl_uuid_from_string(&(vtpm->uuid), tmp)) {
+                  LOG(ERROR, "%s/uuid is a malformed uuid?? (%s) Probably a bug!!\n", be_path, tmp);
+                  free(vtpms);
+                  return NULL;
+              }
           }
        }
     }
@@ -2818,13 +2819,6 @@ int libxl__device_nic_setdefault(libxl__gc *gc, libxl_device_nic *nic,
 
     rc = libxl__resolve_domid(gc, nic->backend_domname, &nic->backend_domid);
     if (rc < 0) return rc;
-
-    if (nic->backend_domid != LIBXL_TOOLSTACK_DOMID && run_hotplug_scripts) {
-        LOG(ERROR, "cannot use a backend domain different than %d if"
-                   "hotplug scripts are executed from libxl",
-                   LIBXL_TOOLSTACK_DOMID);
-        return ERROR_FAIL;
-    }
 
     switch (libxl__domain_type(gc, domid)) {
     case LIBXL_DOMAIN_TYPE_HVM:

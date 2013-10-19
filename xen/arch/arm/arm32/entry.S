@@ -87,13 +87,13 @@ DEFINE_TRAP_ENTRY_NOIRQ(fiq)
 
 return_from_trap:
         mov sp, r11
-ENTRY(return_to_new_vcpu)
+ENTRY(return_to_new_vcpu32)
         ldr r11, [sp, #UREGS_cpsr]
         and r11, #PSR_MODE_MASK
         cmp r11, #PSR_MODE_HYP
         beq return_to_hypervisor
         /* Fall thru */
-ENTRY(return_to_guest)
+return_to_guest:
         mov r11, sp
         bic sp, #7 /* Align the stack pointer */
         bl leave_hypervisor_tail /* Disables interrupts on return */
@@ -108,7 +108,7 @@ ENTRY(return_to_guest)
         RESTORE_ONE_BANKED(R8_fiq); RESTORE_ONE_BANKED(R9_fiq); RESTORE_ONE_BANKED(R10_fiq)
         RESTORE_ONE_BANKED(R11_fiq); RESTORE_ONE_BANKED(R12_fiq);
         /* Fall thru */
-ENTRY(return_to_hypervisor)
+return_to_hypervisor:
         cpsid i
         ldr lr, [sp, #UREGS_lr]
         ldr r11, [sp, #UREGS_pc]
@@ -117,6 +117,7 @@ ENTRY(return_to_hypervisor)
         msr SPSR_hyp, r11
         pop {r0-r12}
         add sp, #(UREGS_SP_usr - UREGS_sp); /* SP, LR, SPSR, PC */
+        clrex
         eret
 
 /*

@@ -20,7 +20,7 @@
 #include <xen/keyhandler.h>
 #include <xen/delay.h>
 #include <xen/guest_access.h>
-#include <xen/nmi.h>
+#include <xen/watchdog.h>
 #include <xen/shutdown.h>
 #include <xen/video.h>
 #include <xen/kexec.h>
@@ -175,10 +175,15 @@ static char * __init loglvl_str(int lvl)
  * ********************************************************
  */
 
-static void putchar_console_ring(int c)
+static void conring_puts(const char *str)
 {
+    char c;
+
     ASSERT(spin_is_locked(&console_lock));
-    conring[CONRING_IDX_MASK(conringp++)] = c;
+
+    while ( (c = *str++) != '\0' )
+        conring[CONRING_IDX_MASK(conringp++)] = c;
+
     if ( (uint32_t)(conringp - conringc) > conring_size )
         conringc = conringp - conring_size;
 }
@@ -368,7 +373,7 @@ static DECLARE_SOFTIRQ_TASKLET(notify_dom0_con_ring_tasklet,
 
 static long guest_console_write(XEN_GUEST_HANDLE_PARAM(char) buffer, int count)
 {
-    char kbuf[128], *kptr;
+    char kbuf[128];
     int kcount;
 
     while ( count > 0 )
@@ -390,8 +395,7 @@ static long guest_console_write(XEN_GUEST_HANDLE_PARAM(char) buffer, int count)
 
         if ( opt_console_to_ring )
         {
-            for ( kptr = kbuf; *kptr != '\0'; kptr++ )
-                putchar_console_ring(*kptr);
+            conring_puts(kbuf);
             tasklet_schedule(&notify_dom0_con_ring_tasklet);
         }
 
@@ -456,19 +460,15 @@ static bool_t console_locks_busted;
 
 static void __putstr(const char *str)
 {
-    int c;
-
     ASSERT(spin_is_locked(&console_lock));
 
     sercon_puts(str);
     video_puts(str);
 
+    conring_puts(str);
+
     if ( !console_locks_busted )
-    {
-        while ( (c = *str++) != '\0' )
-            putchar_console_ring(c);
         tasklet_schedule(&notify_dom0_con_ring_tasklet);
-    }
 }
 
 static int printk_prefix_check(char *p, char **pp)
@@ -648,7 +648,7 @@ void __init console_init_postirq(void)
     for ( i = conringc ; i != conringp; i++ )
         ring[i & (opt_conring_size - 1)] = conring[i & (conring_size - 1)];
     conring = ring;
-    wmb(); /* Allow users of console_force_unlock() to see larger buffer. */
+    smp_wmb(); /* Allow users of console_force_unlock() to see larger buffer. */
     conring_size = opt_conring_size;
     spin_unlock_irq(&console_lock);
 
@@ -737,6 +737,7 @@ void console_end_log_everything(void)
 
 void console_force_unlock(void)
 {
+    watchdog_disable();
     spin_lock_init(&console_lock);
     serial_force_unlock(sercon_handle);
     console_locks_busted = 1;

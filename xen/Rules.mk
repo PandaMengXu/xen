@@ -101,7 +101,7 @@ obj-y    := $(patsubst %/,%/built-in.o,$(obj-y))
 
 subdir-all := $(subdir-y) $(subdir-n)
 
-$(filter %.init.o,$(obj-y) $(obj-bin-y)): CFLAGS += -DINIT_SECTIONS_ONLY
+$(filter %.init.o,$(obj-y) $(obj-bin-y) $(extra-y)): CFLAGS += -DINIT_SECTIONS_ONLY
 
 $(obj-$(coverage)): CFLAGS += -fprofile-arcs -ftest-coverage -DTEST_COVERAGE
 
@@ -176,6 +176,9 @@ $(filter %.init.o,$(obj-y) $(obj-bin-y) $(extra-y)): %.init.o: %.o Makefile
 
 %.i: %.c Makefile
 	$(CPP) $(CFLAGS) $< -o $@
+
+%.s: %.c Makefile
+	$(CC) $(CFLAGS) -S $< -o $@
 
 # -std=gnu{89,99} gets confused by # as an end-of-line comment marker
 %.s: %.S Makefile

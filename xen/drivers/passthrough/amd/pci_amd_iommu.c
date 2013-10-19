@@ -207,50 +207,6 @@ int __init amd_iov_detect(void)
 
     init_done = 1;
 
-    /*
-     * AMD IOMMUs don't distinguish between vectors destined for
-     * different cpus when doing interrupt remapping.  This means
-     * that interrupts going through the same intremap table
-     * can't share the same vector.
-     *
-     * If irq_vector_map isn't specified, choose a sensible default:
-     * - If we're using per-device interemap tables, per-device
-     *   vector non-sharing maps
-     * - If we're using a global interemap table, global vector
-     *   non-sharing map
-     */
-    if ( opt_irq_vector_map == OPT_IRQ_VECTOR_MAP_DEFAULT )
-    {
-        if ( amd_iommu_perdev_intremap )
-        {
-            /* Per-device vector map logic is broken for devices with multiple
-             * MSI-X interrupts (and would also be for multiple MSI, if Xen
-             * supported it).
-             *
-             * Until this is fixed, use global vector tables as far as the irq
-             * logic is concerned to avoid the buggy behaviour of per-device
-             * maps in map_domain_pirq(), and use per-device tables as far as
-             * intremap code is concerned to avoid the security issue.
-             */
-            printk(XENLOG_WARNING "AMD-Vi: per-device vector map logic is broken.  "
-                   "Using per-device-global maps instead until a fix is found.\n");
-
-            opt_irq_vector_map = OPT_IRQ_VECTOR_MAP_GLOBAL;
-        }
-        else
-        {
-            printk("AMD-Vi: Enabling global vector map\n");
-            opt_irq_vector_map = OPT_IRQ_VECTOR_MAP_GLOBAL;
-        }
-    }
-    else
-    {
-        printk("AMD-Vi: Not overriding irq_vector_map setting\n");
-
-        if ( opt_irq_vector_map != OPT_IRQ_VECTOR_MAP_GLOBAL )
-            printk(XENLOG_WARNING "AMD-Vi: per-device vector map logic is broken.  "
-                   "Use irq_vector_map=global to work around.\n");
-    }
     if ( !amd_iommu_perdev_intremap )
         printk(XENLOG_WARNING "AMD-Vi: Using global interrupt remap table is not recommended (see XSA-36)!\n");
     return scan_pci_devices();
@@ -637,7 +593,7 @@ const struct iommu_ops amd_iommu_ops = {
     .get_device_group_id = amd_iommu_group_id,
     .update_ire_from_apic = amd_iommu_ioapic_update_ire,
     .update_ire_from_msi = amd_iommu_msi_msg_update_ire,
-    .read_apic_from_ire = __io_apic_read,
+    .read_apic_from_ire = amd_iommu_read_ioapic_from_ire,
     .read_msi_from_ire = amd_iommu_read_msi_from_ire,
     .setup_hpet_msi = amd_setup_hpet_msi,
     .suspend = amd_iommu_suspend,

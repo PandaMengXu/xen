@@ -1125,6 +1125,11 @@ static void parse_config_data(const char *config_source,
                 nic->gatewaydev = strdup(default_gatewaydev);
             }
 
+            if (default_vifbackend) {
+                free(nic->backend_domname);
+                nic->backend_domname = strdup(default_vifbackend);
+            }
+
             p = strtok(buf2, ",");
             if (!p)
                 goto skip_nic;
@@ -1174,6 +1179,7 @@ static void parse_config_data(const char *config_source,
                     free(nic->ifname);
                     nic->ifname = strdup(p2 + 1);
                 } else if (!strcmp(p, "backend")) {
+                    free(nic->backend_domname);
                     nic->backend_domname = strdup(p2 + 1);
                 } else if (!strcmp(p, "rate")) {
                     parse_vif_rate(&config, (p2 + 1), nic);
@@ -1525,6 +1531,20 @@ skip_vfb:
                     " and vncdisplay!\n");
             exit (1);
 
+        }
+
+        if (!xlu_cfg_get_string (config, "vendor_device", &buf, 0)) {
+            libxl_vendor_device d;
+
+            e = libxl_vendor_device_from_string(buf, &d);
+            if (e) {
+                fprintf(stderr,
+                        "xl: unknown vendor_device '%s'\n",
+                        buf);
+                exit(-ERROR_FAIL);
+            }
+
+            b_info->u.hvm.vendor_device = d;
         }
     }
 
@@ -3266,7 +3286,7 @@ static void save_domain_core_writeconfig(int fd, const char *source,
 }
 
 static int save_domain(uint32_t domid, const char *filename, int checkpoint,
-                const char *override_config_file)
+                            int leavepaused, const char *override_config_file)
 {
     int fd;
     uint8_t *config_data;
@@ -3290,11 +3310,15 @@ static int save_domain(uint32_t domid, const char *filename, int checkpoint,
     int rc = libxl_domain_suspend(ctx, domid, fd, 0, NULL);
     close(fd);
 
-    if (rc < 0)
+    if (rc < 0) {
         fprintf(stderr, "Failed to save domain, resuming domain\n");
-
-    if (checkpoint || rc < 0)
         libxl_domain_resume(ctx, domid, 1, 0);
+    }
+    else if (leavepaused || checkpoint) {
+        if (leavepaused)
+            libxl_domain_pause(ctx, domid);
+        libxl_domain_resume(ctx, domid, 1, 0);
+    }
     else
         libxl_domain_destroy(ctx, domid, 0);
 
@@ -3838,11 +3862,15 @@ int main_save(int argc, char **argv)
     const char *filename;
     const char *config_filename = NULL;
     int checkpoint = 0;
+    int leavepaused = 0;
     int opt;
 
-    SWITCH_FOREACH_OPT(opt, "c", NULL, "save", 2) {
+    SWITCH_FOREACH_OPT(opt, "cp", NULL, "save", 2) {
     case 'c':
         checkpoint = 1;
+        break;
+    case 'p':
+        leavepaused = 1;
         break;
     }
 
@@ -3856,7 +3884,7 @@ int main_save(int argc, char **argv)
     if ( argc - optind >= 3 )
         config_filename = argv[optind + 2];
 
-    save_domain(domid, filename, checkpoint, config_filename);
+    save_domain(domid, filename, checkpoint, leavepaused, config_filename);
     return 0;
 }
 
@@ -4582,6 +4610,8 @@ static void output_xeninfo(void)
     printf("xen_major              : %d\n", info->xen_version_major);
     printf("xen_minor              : %d\n", info->xen_version_minor);
     printf("xen_extra              : %s\n", info->xen_version_extra);
+    printf("xen_version            : %d.%d%s\n", info->xen_version_major,
+           info->xen_version_minor, info->xen_version_extra);
     printf("xen_caps               : %s\n", info->capabilities);
     printf("xen_scheduler          : %s\n", libxl_scheduler_to_string(sched));
     printf("xen_pagesize           : %u\n", info->pagesize);

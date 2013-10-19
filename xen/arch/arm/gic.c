@@ -522,6 +522,7 @@ void __init release_irq(unsigned int irq)
     action = desc->action;
     desc->action  = NULL;
     desc->status |= IRQ_DISABLED;
+    desc->status &= ~IRQ_GUEST;
 
     spin_lock(&gic.lock);
     desc->handler->shutdown(desc);
@@ -892,7 +893,7 @@ void gic_dump_info(struct vcpu *v)
 void __cpuinit init_maintenance_interrupt(void)
 {
     request_dt_irq(&gic.maintenance, maintenance_interrupt,
-                   0, "irq-maintenance", NULL);
+                   "irq-maintenance", NULL);
 }
 
 /*

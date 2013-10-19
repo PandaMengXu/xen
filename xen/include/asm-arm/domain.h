@@ -6,7 +6,9 @@
 #include <xen/sched.h>
 #include <asm/page.h>
 #include <asm/p2m.h>
+#include <asm/vfp.h>
 #include <public/hvm/params.h>
+#include <xen/serial.h>
 
 /* Represents state corresponding to a block of 32 interrupts */
 struct vgic_irq_rank {
@@ -61,13 +63,15 @@ struct arch_domain
     enum domain_type type;
 #endif
 
+    /* Virtual MMU */
     struct p2m_domain p2m;
+    uint64_t vttbr;
+
     struct hvm_domain hvm_domain;
     xen_pfn_t *grant_table_gpfn;
 
     /* Virtual CPUID */
     uint32_t vpidr;
-    register_t vmpidr;
 
     struct {
         uint64_t offset;
@@ -100,12 +104,13 @@ struct arch_domain
         paddr_t cbase; /* CPU base address */
     } vgic;
 
-    struct vpl011 {
-#define VPL011_BUF_SIZE 128
-        char                  *buf;
-        int                    idx;
-        spinlock_t             lock;
-    } uart0;
+    struct vuart {
+#define VUART_BUF_SIZE 128
+        char                        *buf;
+        int                         idx;
+        const struct vuart_info     *info;
+        spinlock_t                  lock;
+    } vuart;
 
 }  __cacheline_aligned;
 
@@ -188,8 +193,12 @@ struct arch_vcpu
     uint32_t joscr, jmcr;
 #endif
 
+    /* Float-pointer */
+    struct vfp_state vfp;
+
     /* CP 15 */
     uint32_t csselr;
+    register_t vmpidr;
 
     uint32_t gic_hcr, gic_vmcr, gic_apr;
     uint32_t gic_lr[64];

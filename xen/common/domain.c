@@ -932,7 +932,7 @@ int map_vcpu_info(struct vcpu *v, unsigned long gfn, unsigned offset)
     v->vcpu_info_mfn = page_to_mfn(page);
 
     /* Set new vcpu_info pointer /before/ setting pending flags. */
-    wmb();
+    smp_wmb();
 
     /*
      * Mark everything as being pending just to make sure nothing gets
@@ -958,7 +958,8 @@ void unmap_vcpu_info(struct vcpu *v)
         return;
 
     mfn = v->vcpu_info_mfn;
-    unmap_domain_page_global(v->vcpu_info);
+    unmap_domain_page_global((void *)
+                             ((unsigned long)v->vcpu_info & PAGE_MASK));
 
     v->vcpu_info = &dummy_vcpu_info;
     v->vcpu_info_mfn = INVALID_MFN;

@@ -27,10 +27,12 @@
 #include <asm/p2m.h>
 #include <asm/irq.h>
 #include <asm/cpufeature.h>
+#include <asm/vfp.h>
+#include <asm/processor-ca15.h>
 
 #include <asm/gic.h>
 #include "vtimer.h"
-#include "vpl011.h"
+#include "vuart.h"
 
 DEFINE_PER_CPU(struct vcpu *, curr_vcpu);
 
@@ -60,7 +62,6 @@ static void ctxt_switch_from(struct vcpu *p)
     p->arch.csselr = READ_SYSREG(CSSELR_EL1);
 
     /* Control Registers */
-    p->arch.actlr = READ_SYSREG(ACTLR_EL1);
     p->arch.sctlr = READ_SYSREG(SCTLR_EL1);
     p->arch.cpacr = READ_SYSREG(CPACR_EL1);
 
@@ -117,7 +118,8 @@ static void ctxt_switch_from(struct vcpu *p)
 
     /* XXX MPU */
 
-    /* XXX VFP */
+    /* VFP */
+    vfp_save_state(p);
 
     /* VGIC */
     gic_save_state(p);
@@ -138,12 +140,13 @@ static void ctxt_switch_to(struct vcpu *n)
     isb();
 
     WRITE_SYSREG32(n->domain->arch.vpidr, VPIDR_EL2);
-    WRITE_SYSREG(n->domain->arch.vmpidr, VMPIDR_EL2);
+    WRITE_SYSREG(n->arch.vmpidr, VMPIDR_EL2);
 
     /* VGIC */
     gic_restore_state(n);
 
-    /* XXX VFP */
+    /* VFP */
+    vfp_restore_state(n);
 
     /* XXX MPU */
 
@@ -179,7 +182,6 @@ static void ctxt_switch_to(struct vcpu *n)
     isb();
 
     /* Control Registers */
-    WRITE_SYSREG(n->arch.actlr, ACTLR_EL1);
     WRITE_SYSREG(n->arch.sctlr, SCTLR_EL1);
     WRITE_SYSREG(n->arch.cpacr, CPACR_EL1);
 
@@ -204,6 +206,11 @@ static void ctxt_switch_to(struct vcpu *n)
     WRITE_SYSREG(n->arch.csselr, CSSELR_EL1);
 
     isb();
+
+    if ( is_pv32_domain(n->domain) )
+        hcr &= ~HCR_RW;
+    else
+        hcr |= HCR_RW;
 
     WRITE_SYSREG(hcr, HCR_EL2);
     isb();
@@ -243,9 +250,13 @@ static void continue_new_vcpu(struct vcpu *prev)
 
     if ( is_idle_vcpu(current) )
         reset_stack_and_jump(idle_loop);
+    else if is_pv32_domain(current->domain)
+        /* check_wakeup_from_wait(); */
+        reset_stack_and_jump(return_to_new_vcpu32);
     else
         /* check_wakeup_from_wait(); */
-        reset_stack_and_jump(return_to_new_vcpu);
+        reset_stack_and_jump(return_to_new_vcpu64);
+
 }
 
 void context_switch(struct vcpu *prev, struct vcpu *next)
@@ -432,6 +443,8 @@ int vcpu_initialise(struct vcpu *v)
 {
     int rc = 0;
 
+    BUILD_BUG_ON( sizeof(struct cpu_info) > STACK_SIZE );
+
     v->arch.stack = alloc_xenheap_pages(STACK_ORDER, MEMF_node(vcpu_to_node(v)));
     if ( v->arch.stack == NULL )
         return -ENOMEM;
@@ -449,6 +462,19 @@ int vcpu_initialise(struct vcpu *v)
         return rc;
 
     v->arch.sctlr = SCTLR_BASE;
+    /*
+     * By default exposes an SMP system with AFF0 set to the VCPU ID
+     * TODO: Handle multi-threading processor and cluster
+     */
+    v->arch.vmpidr = MPIDR_SMP | (v->vcpu_id << MPIDR_AFF0_SHIFT);
+
+    v->arch.actlr = READ_SYSREG32(ACTLR_EL1);
+
+    /* XXX: Handle other than CA15 cpus */
+    if ( v->domain->max_vcpus > 1 )
+        v->arch.actlr |= ACTLR_CA15_SMP;
+    else
+        v->arch.actlr &= ~ACTLR_CA15_SMP;
 
     if ( (rc = vcpu_vgic_init(v)) != 0 )
         return rc;
@@ -482,7 +508,6 @@ int arch_domain_create(struct domain *d, unsigned int domcr_flags)
 
     /* Default the virtual ID to match the physical */
     d->arch.vpidr = boot_cpu_data.midr.bits;
-    d->arch.vmpidr = boot_cpu_data.mpidr.bits;
 
     clear_page(d->shared_info);
     share_xen_page_with_guest(
@@ -500,8 +525,12 @@ int arch_domain_create(struct domain *d, unsigned int domcr_flags)
     if ( (rc = vcpu_domain_init(d)) != 0 )
         goto fail;
 
-    /* Domain 0 gets a real UART not an emulated one */
-    if ( d->domain_id && (rc = domain_uart0_init(d)) != 0 )
+    /*
+     * Virtual UART is only used by linux early printk and decompress code.
+     * Only use it for dom0 because the linux kernel may not support
+     * multi-platform.
+     */
+    if ( (d->domain_id == 0) && (rc = domain_vuart_init(d)) )
         goto fail;
 
     return 0;
@@ -517,7 +546,7 @@ void arch_domain_destroy(struct domain *d)
 {
     p2m_teardown(d);
     domain_vgic_free(d);
-    domain_uart0_free(d);
+    domain_vuart_free(d);
     free_xenheap_page(d->shared_info);
 }
 

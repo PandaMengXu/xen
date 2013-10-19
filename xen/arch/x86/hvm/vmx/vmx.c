@@ -950,6 +950,9 @@ static void vmx_init_hypercall_page(struct domain *d, void *hypercall_page)
 
     for ( i = 0; i < (PAGE_SIZE / 32); i++ )
     {
+        if ( i == __HYPERVISOR_iret )
+            continue;
+
         p = (char *)(hypercall_page + (i * 32));
         *(u8  *)(p + 0) = 0xb8; /* mov imm32, %eax */
         *(u32 *)(p + 1) = i;
@@ -1411,13 +1414,10 @@ static void vmx_set_info_guest(struct vcpu *v)
 
 static void vmx_update_eoi_exit_bitmap(struct vcpu *v, u8 vector, u8 trig)
 {
-    if ( cpu_has_vmx_virtual_intr_delivery )
-    {
-        if (trig)
-            vmx_set_eoi_exit_bitmap(v, vector);
-        else
-            vmx_clear_eoi_exit_bitmap(v, vector);
-    }
+    if ( trig )
+        vmx_set_eoi_exit_bitmap(v, vector);
+    else
+        vmx_clear_eoi_exit_bitmap(v, vector);
 }
 
 static int vmx_virtual_intr_delivery_enabled(void)
@@ -1429,9 +1429,6 @@ static void vmx_process_isr(int isr, struct vcpu *v)
 {
     unsigned long status;
     u8 old;
-
-    if ( !cpu_has_vmx_virtual_intr_delivery )
-        return;
 
     if ( isr < 0 )
         isr = 0;
@@ -1502,6 +1499,15 @@ static void vmx_sync_pir_to_irr(struct vcpu *v)
         vlapic_set_vector(i, &vlapic->regs->data[APIC_IRR]);
 }
 
+static void vmx_handle_eoi(u8 vector)
+{
+    unsigned long status = __vmread(GUEST_INTR_STATUS);
+
+    /* We need to clear the SVI field. */
+    status &= VMX_GUEST_INTR_STATUS_SUBFIELD_BITMASK;
+    __vmwrite(GUEST_INTR_STATUS, status);
+}
+
 static struct hvm_function_table __initdata vmx_function_table = {
     .name                 = "VMX",
     .cpu_up_prepare       = vmx_cpu_up_prepare,
@@ -1554,6 +1560,7 @@ static struct hvm_function_table __initdata vmx_function_table = {
     .process_isr          = vmx_process_isr,
     .deliver_posted_intr  = vmx_deliver_posted_intr,
     .sync_pir_to_irr      = vmx_sync_pir_to_irr,
+    .handle_eoi           = vmx_handle_eoi,
     .nhvm_hap_walk_L1_p2m = nvmx_hap_walk_L1_p2m,
 };
 
@@ -1580,7 +1587,14 @@ const struct hvm_function_table * __init start_vmx(void)
 
         setup_ept_dump();
     }
- 
+
+    if ( !cpu_has_vmx_virtual_intr_delivery )
+    {
+        vmx_function_table.update_eoi_exit_bitmap = NULL;
+        vmx_function_table.process_isr = NULL;
+        vmx_function_table.handle_eoi = NULL;
+    }
+
     if ( cpu_has_vmx_posted_intr_processing )
         alloc_direct_apic_vector(&posted_intr_vector, event_check_interrupt);
     else

@@ -224,9 +224,15 @@ ETHERBOOT_NICS ?= rtl8139 8086100e
 # CONFIG_QEMU ?= `pwd`/$(XEN_ROOT)/../qemu-xen.git
 CONFIG_QEMU ?= $(QEMU_REMOTE)
 
+<<<<<<< HEAD
 QEMU_TAG ?= xen-4.3.0
 # Mon Jun 17 17:39:51 2013 +0100
 # qemu-xen-traditional: disable docs
+=======
+QEMU_TAG ?= 84411871262363200e70fa087d7b21647091a450
+# Wed Jul 31 16:16:16 2013 +0100
+# qemu-xen-traditional: allow build without blktap1
+>>>>>>> 0c006b41a283a0a569c863d44abde5aa5750ae01
 
 # Short answer -- do not enable this unless you know what you are
 # doing and are prepared for some pain.

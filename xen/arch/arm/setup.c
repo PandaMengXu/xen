@@ -38,7 +38,6 @@
 #include <asm/page.h>
 #include <asm/current.h>
 #include <asm/setup.h>
-#include <asm/vfp.h>
 #include <asm/early_printk.h>
 #include <asm/gic.h>
 #include <asm/cpufeature.h>
@@ -289,16 +288,27 @@ static void __init setup_mm(unsigned long dtb_paddr, size_t dtb_size)
     unsigned long heap_pages, xenheap_pages, domheap_pages;
     unsigned long dtb_pages;
     unsigned long boot_mfn_start, boot_mfn_end;
+    int i = 0;
 
-    /*
-     * TODO: only using the first RAM bank for now.  The heaps and the
-     * frame table assume RAM is physically contiguous.
-     */
-    if ( early_info.mem.nr_banks > 1 )
-        early_printk("WARNING: Only using first bank of memory\n");
+    /* TODO: Handle non-contiguous memory bank */
+    if ( !early_info.mem.nr_banks )
+        early_panic("No memory bank\n");
     ram_start = early_info.mem.bank[0].start;
     ram_size  = early_info.mem.bank[0].size;
     ram_end = ram_start + ram_size;
+
+    for ( i = 1; i < early_info.mem.nr_banks; i++ )
+    {
+        if ( ram_end != early_info.mem.bank[i].start )
+            break;
+
+        ram_size += early_info.mem.bank[i].size;
+        ram_end += early_info.mem.bank[i].size;
+    }
+
+    if ( i != early_info.mem.nr_banks )
+        early_printk("WARNING: some memory banks are not used\n");
+
     total_pages = ram_pages = ram_size >> PAGE_SHIFT;
 
     /*
@@ -418,6 +428,9 @@ void __init start_xen(unsigned long boot_phys_offset,
 
     setup_cache();
 
+    percpu_init_areas();
+    set_processor_id(0); /* needed early, for smp_processor_id() */
+
     smp_clear_cpu_maps();
 
     device_tree_flattened = (void *)BOOT_MISC_VIRT_START
@@ -448,16 +461,12 @@ void __init start_xen(unsigned long boot_phys_offset,
     gic_init();
     make_cpus_ready(cpus, boot_phys_offset);
 
-    percpu_init_areas();
-    set_processor_id(0); /* needed early, for smp_processor_id() */
     set_current((struct vcpu *)0xfffff000); /* debug sanity */
     idle_vcpu[0] = current;
 
     init_traps();
 
     setup_virt_paging();
-
-    enable_vfp();
 
     softirq_init();
 
@@ -480,6 +489,7 @@ void __init start_xen(unsigned long boot_phys_offset,
     arch_init_memory();
 
     local_irq_enable();
+    local_abort_enable();
 
     smp_prepare_cpus(cpus);
 
