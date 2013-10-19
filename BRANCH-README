@@ -6,6 +6,9 @@
 branch: master
 Always keep the latest compirable version of rt-xen
 
+Log:
+Oct. 20,2013: rt-xen 2.0 gEDF/gDM/pEDF/pDM scheduler
+
 -------
 branch:xen-base
 xen 4.3 code. It's the code base the rt-xen 2.x is based on.
