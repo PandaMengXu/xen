@@ -1,0 +1,15 @@
+#======================================#
+#This document records the purpose of each branch in the repository
+#Author: Meng
+#Date  : Oct. 20, 2013
+#======================================#
+branch: master
+Always keep the latest compirable version of rt-xen
+
+-------
+branch:xen-base
+xen 4.3 code. It's the code base the rt-xen 2.x is based on.
+
+------
+branch:rt-xen_2.0
+Implemented sched-rtglobal, which includes gEDF and gDM, and sched-rtpartition, which include pEDF and pDM.
