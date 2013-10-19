@@ -38,7 +38,7 @@
 #include <xsm/xsm.h>
 
 /* opt_sched: scheduler - default to credit */
-static char __initdata opt_sched[10] = "credit";
+static char __initdata opt_sched[20] = "credit";
 string_param("sched", opt_sched);
 
 /* if sched_smt_power_savings is set,
@@ -67,6 +67,8 @@ static const struct scheduler *schedulers[] = {
     &sched_sedf_def,
     &sched_credit_def,
     &sched_credit2_def,
+	&sched_rtglobal_def,
+	&sched_rtpartition_def,
     &sched_arinc653_def,
 };
 
@@ -334,6 +336,9 @@ void sched_destroy_domain(struct domain *d)
 void vcpu_sleep_nosync(struct vcpu *v)
 {
     unsigned long flags;
+    /* trace overhead */
+    s_time_t t1, t2;
+    t1 = NOW();
 
     vcpu_schedule_lock_irqsave(v, flags);
 
@@ -346,6 +351,9 @@ void vcpu_sleep_nosync(struct vcpu *v)
     }
 
     vcpu_schedule_unlock_irqrestore(v, flags);
+
+    t2 = NOW();
+    TRACE_3D(TRC_SCHED_OVERHEAD_SLEEP, v->domain->domain_id, v->vcpu_id, t2-t1);
 
     TRACE_2D(TRC_SCHED_SLEEP, v->domain->domain_id, v->vcpu_id);
 }
@@ -363,6 +371,9 @@ void vcpu_sleep_sync(struct vcpu *v)
 void vcpu_wake(struct vcpu *v)
 {
     unsigned long flags;
+    /* trace overhead */
+    s_time_t t1, t2;
+    t1 = NOW();
 
     vcpu_schedule_lock_irqsave(v, flags);
 
@@ -379,6 +390,9 @@ void vcpu_wake(struct vcpu *v)
     }
 
     vcpu_schedule_unlock_irqrestore(v, flags);
+
+    t2 = NOW();
+    TRACE_3D(TRC_SCHED_OVERHEAD_WAKE, v->domain->domain_id, v->vcpu_id, t2-t1);
 
     TRACE_2D(TRC_SCHED_WAKE, v->domain->domain_id, v->vcpu_id);
 }
@@ -1144,6 +1158,8 @@ static void schedule(void)
     struct task_slice     next_slice;
     int cpu = smp_processor_id();
 
+    s_time_t t2;       /* trace scheduling latency */ 
+
     ASSERT_NOT_IN_ATOMIC();
 
     SCHED_STAT_CRANK(sched_run);
@@ -1186,6 +1202,17 @@ static void schedule(void)
     {
         pcpu_schedule_unlock_irq(cpu);
         trace_continue_running(next);
+
+        /* trace overhead */
+        t2 = NOW();
+        TRACE_6D(TRC_SCHED_OVERHEAD_SCHED_LATENCY,
+             prev->domain->domain_id,
+             prev->vcpu_id,
+             next->domain->domain_id,
+             next->vcpu_id,
+             next_slice.migrated,
+             t2-now);
+
         return continue_running(prev);
     }
 
@@ -1213,6 +1240,16 @@ static void schedule(void)
 
     ASSERT(next->runstate.state != RUNSTATE_running);
     vcpu_runstate_change(next, RUNSTATE_running, now);
+
+    /* trace overhead */
+    t2 = NOW();
+    TRACE_6D(TRC_SCHED_OVERHEAD_SCHED_LATENCY,
+             prev->domain->domain_id,
+             prev->vcpu_id,
+             next->domain->domain_id,
+             next->vcpu_id,
+             next_slice.migrated,
+             t2-now);
 
     /*
      * NB. Don't add any trace records from here until the actual context

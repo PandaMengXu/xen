@@ -944,6 +944,15 @@ int libxl_sched_credit_params_get(libxl_ctx *ctx, uint32_t poolid,
 int libxl_sched_credit_params_set(libxl_ctx *ctx, uint32_t poolid,
                                   libxl_sched_credit_params *scinfo);
 
+// int libxl_sched_rtglobal_params_get(libxl_ctx *ctx, uint32_t poolid,
+//                                   libxl_sched_rtglobal_params *scinfo);
+// int libxl_sched_rtglobal_params_set(libxl_ctx *ctx, uint32_t poolid,
+//                                   libxl_sched_rtglobal_params *scinfo);
+// int libxl_sched_rtpartition_params_get(libxl_ctx *ctx, uint32_t poolid,
+//                                   libxl_sched_rtpartition_params *scinfo);
+// int libxl_sched_rtpartition_params_set(libxl_ctx *ctx, uint32_t poolid,
+//                                   libxl_sched_rtpartition_params *scinfo);
+
 /* Scheduler Per-domain parameters */
 
 #define LIBXL_DOMAIN_SCHED_PARAM_WEIGHT_DEFAULT    -1
@@ -952,6 +961,10 @@ int libxl_sched_credit_params_set(libxl_ctx *ctx, uint32_t poolid,
 #define LIBXL_DOMAIN_SCHED_PARAM_SLICE_DEFAULT     -1
 #define LIBXL_DOMAIN_SCHED_PARAM_LATENCY_DEFAULT   -1
 #define LIBXL_DOMAIN_SCHED_PARAM_EXTRATIME_DEFAULT -1
+
+#define LIBXL_DOMAIN_SCHED_PARAM_BUDGET_DEFAULT    -1
+#define LIBXL_DOMAIN_SCHED_PARAM_VCPU_DEFAULT      -1
+#define LIBXL_DOMAIN_SCHED_PARAM_EXTRA_DEFAULT     -1
 
 int libxl_domain_sched_params_get(libxl_ctx *ctx, uint32_t domid,
                                   libxl_domain_sched_params *params);
