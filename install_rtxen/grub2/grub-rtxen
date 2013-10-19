@@ -1,0 +1,5 @@
+#RTXen boot option. Change to your own parameter for respective scheduler
+GRUB_CMDLINE_RTXEN_GEDF="dom0_mem=2048M dom0_max_vcpus=1 dom0_vcpus_pin sched=gedf"
+GRUB_CMDLINE_RTXEN_CREDIT="dom0_mem=2048M dom0_max_vcpus=1 dom0_vcpus_pin sched=credit"
+GRUB_CMDLINE_RTXEN_CREDIT2="dom0_mem=2048M dom0_max_vcpus=1 dom0_vcpus_pin sched=credit2"
+
