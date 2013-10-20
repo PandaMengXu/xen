@@ -4,3 +4,11 @@ RT-Xen 1.0
 INSTALL	
 If you are using Fedora 18(64bit), please use ./install_rtxen/install_rtxen.sh to install RT-Xen
 For more installation information, please refer to ./install_rtxen/README
+
+
+=========================
+Progress
+=========================
+sched-rtglobal gedf/gdm and sched-rtpartition pedf/pdm are  developed by Sisu.
+
+sched-rtglobal llf is under development
