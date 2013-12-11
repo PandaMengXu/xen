@@ -180,7 +180,8 @@ static int xc_is_page_granted_v2(xc_interface *xch, xen_pfn_t gpfn,
    return (i != gnt_num);
 }
 
-static xen_pfn_t pfn_to_mfn(xen_pfn_t pfn, xen_pfn_t *p2m, int gwidth)
+/*Meng: delete based on Danial's patch for xen-mfndump*/
+/*static xen_pfn_t pfn_to_mfn(xen_pfn_t pfn, xen_pfn_t *p2m, int gwidth)
 {
   return ((xen_pfn_t) ((gwidth==8)?
                        (((uint64_t *)p2m)[(pfn)]):
@@ -188,7 +189,7 @@ static xen_pfn_t pfn_to_mfn(xen_pfn_t pfn, xen_pfn_t *p2m, int gwidth)
                             (-1UL) :
                             (((uint32_t *)p2m)[(pfn)]))));
 }
-
+*/
 static int get_pt_level(xc_interface *xch, uint32_t domid,
                         unsigned int *pt_level,
                         unsigned int *gwidth)
