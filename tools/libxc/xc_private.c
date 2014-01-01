@@ -403,7 +403,7 @@ int xc_get_pfn_type_batch(xc_interface *xch, uint32_t dom,
     DECLARE_HYPERCALL_BOUNCE(arr, sizeof(*arr) * num, XC_HYPERCALL_BUFFER_BOUNCE_BOTH);
     if ( xc_hypercall_bounce_pre(xch, arr) )
         return -1;
-    domctl.cmd = XEN_DOMCTL_getpageframeinfo3;
+    domctl.cmd = XEN_DOMCTL_getpageframeinfo3;/*Meng: different flag type based on this param*/
     domctl.domain = (domid_t)dom;
     domctl.u.getpageframeinfo3.num = num;
     set_xen_guest_handle(domctl.u.getpageframeinfo3.array, arr);
