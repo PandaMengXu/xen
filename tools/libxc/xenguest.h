@@ -276,9 +276,9 @@ int xc_exchange_page(xc_interface *xch, int domid, xen_pfn_t mfn);
 
 
 /**
- *  * Memory related information, such as PFN types, the P2M table,
- *   * the guest word width and the guest page table levels.
- *    */
+ *  Memory related information, such as PFN types, the P2M table,
+ *  the guest word width and the guest page table levels.
+ */
 struct xc_domain_meminfo {
     unsigned int pt_levels;
     unsigned int guest_width;

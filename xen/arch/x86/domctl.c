@@ -86,7 +86,7 @@ long arch_do_domctl(
     }
     break;
 
-    case XEN_DOMCTL_getpageframeinfo:
+    case XEN_DOMCTL_getpageframeinfo:/*Meng:get if a page is inuse*/
     {
         struct page_info *page;
         unsigned long mfn = domctl->u.getpageframeinfo.gmfn;

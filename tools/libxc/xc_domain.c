@@ -1576,9 +1576,11 @@ int xc_map_domain_meminfo(xc_interface *xch, int domid,
         PERROR("Could not allocate memory for the PFN types");
         goto failed;
     }
+    /*Meng:get machine address of p2m table's each entry, TODO trace this can get the current using page*/
     for ( i = 0; i < minfo->p2m_size; i++ )
         minfo->pfn_type[i] = pfn_to_mfn(i, minfo->p2m_table,
                                         minfo->guest_width);
+    /*Meng: now the minfo->pfn_type[i] is machine address 64bit*/
 
     /* Retrieve PFN types in batches */
     for ( i = 0; i < minfo->p2m_size ; i+=1024 )
