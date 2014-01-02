@@ -3,6 +3,7 @@
 #include <xc_core.h>
 #include <errno.h>
 #include <unistd.h>
+#include <xen/mm_mask.h>
 
 #include "xg_save_restore.h"
 
@@ -79,6 +80,11 @@ int dump_p2m_func(int argc, char *argv[])
         return -1;
     }
 
+	/* Meng:Print dominfo*/
+	printf(" ---Dumping xc_dominfo for domain %d ---\n", domid);
+	printf("nr_pages=%lu, nr_outstanding_pages=%lu, nr_shared_pages=%lu, nr_paged_pages=%lu\n",
+			info.nr_pages,info.nr_outstanding_pages, info.nr_shared_pages, info.nr_paged_pages);
+
     /* Retrieve all the info about the domain's memory */
     memset(&minfo, 0, sizeof(minfo));
     if ( xc_map_domain_meminfo(xch, domid, &minfo) )
@@ -97,6 +103,9 @@ int dump_p2m_func(int argc, char *argv[])
 
         printf("  pfn=0x%lx ==> mfn=0x%lx (type 0x%lx)", i, minfo.p2m_table[i],
                pagetype >> XEN_DOMCTL_PFINFO_LTAB_SHIFT);
+
+		/* Meng:dump mfa type(12 highest bit + 12lowest bit) and PGT_COUNT*/
+		printf(" pfn_type=0x%lx pfn_type&PGT_count_mask=0x%lx",minfo.pfn_type[i], minfo.pfn_type[i] & PGT_count_mask);
 
         if ( is_mapped(minfo.p2m_table[i]) )
             printf(" [mapped]");
