@@ -139,6 +139,8 @@ DEFINE_XEN_GUEST_HANDLE(xen_domctl_getmemlist_t);
 #define XEN_DOMCTL_PFINFO_XALLOC  (0xeU<<28) /* allocate-only page */
 #define XEN_DOMCTL_PFINFO_BROKEN  (0xdU<<28) /* broken page */
 #define XEN_DOMCTL_PFINFO_LTAB_MASK (0xfU<<28)
+#define XEN_DOMCTL_PFINFO_INUSE   (0x1U<<31) /* Meng: page is in use */
+#define XEN_DOMCTL_PFINFO_LTAB_INUSE_MASK (0xf8UL<<24) /* Meng: use A32 as inuse bit*/
 
 struct xen_domctl_getpageframeinfo {
     /* IN variables. */

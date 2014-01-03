@@ -1,0 +1,13 @@
+#This document record the thinking about the data
+
+1. mfn/pfn number pattern? 
+For domU, pfn increase one by one, but mfn is not monotonically increasing/decreasing corresponding to pfn. (for the pfn with large number, the mapped mfn is monotonically decreasing one by one, but the pfn with small number's mfn is not. Why? This may be caused by the alloc mechanism in creating a domain.)
+
+2. Why is L1 table frame not continuous? 
+
+3. TODO: need visually look at the layout of the mfn for each domain. Write a gnuplot to auto draw it.
+    x-axis domID, y-axis used mfn; each point is a mfn used. 
+
+4. TODO: How to get the dom0 and hypervisor's pfn->mfn? 
+
+5. TODO: mfn->pfm: may be interesting. Some mappiing's pfn is not 0xfffffffffffff. I assume if pfm is 0xfffffffffff, it means the mfn is not mapped/used yet.
