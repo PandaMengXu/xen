@@ -144,13 +144,13 @@ long arch_do_domctl(
                 break;
             }
 
-            page = alloc_domheap_page(NULL, 0);
+            page = alloc_domheap_page(NULL, 0);/* Meng: alloc one page for dom0 */
             if ( !page )
             {
                 ret = -ENOMEM;
                 break;
             }
-            arr = __map_domain_page(page);
+            arr = __map_domain_page(page); /* Meng: addr to DIRECTMAP addr? */
 
             for ( n = ret = 0; n < num; )
             {
@@ -170,7 +170,7 @@ long arch_do_domctl(
                     unsigned long type = 0;
                     p2m_type_t t;
 
-                    page = get_page_from_gfn(d, arr[j], &t, P2M_ALLOC);
+                    page = get_page_from_gfn(d, arr[j], &t, P2M_ALLOC); /* Meng: get page frame struct from gfn/mfn*/
 
                     if ( unlikely(!page) ||
                          unlikely(is_xen_heap_page(page)) )
@@ -198,11 +198,18 @@ long arch_do_domctl(
                             break;
                         }
 
-                        if ( page->u.inuse.type_info & PGT_pinned )
+			//if ( (page->u.inuse.type_info & PGT_count_mask) != 0 ) /* Meng: borrow pin bit as inuse bit*/
+			if (page_state_is(page,inuse))
+			    type |= XEN_DOMCTL_PFINFO_INUSE
+                       
+			 /*if ( page->u.inuse.type_info & PGT_pinned )
                             type |= XEN_DOMCTL_PFINFO_LPINTAB;
-
+			*/
                         if ( page->count_info & PGC_broken )
                             type = XEN_DOMCTL_PFINFO_BROKEN;
+
+			//if ( (page->u.inuse.type_info & PGT_count_mask) != 0 )
+			//    type |= XEN_DOMCTL_PFINFO_INUSE;
                     }
 
                     if ( page )

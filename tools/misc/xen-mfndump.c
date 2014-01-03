@@ -19,6 +19,7 @@ int help_func(int argc, char *argv[])
             "  help                      show this help\n"
             "  dump-m2p                  show M2P\n"
             "  dump-p2m    <domid>       show P2M of <domid>\n"
+            "  dump-p2m-pgc <domid>      show P2M and page_count of <domid>\n"
             "  dump-ptes   <domid> <mfn> show the PTEs in <mfn>\n"
             "  lookup-pte  <domid> <mfn> find the PTE mapping <mfn>\n"
             "  memcmp-mfns <domid1> <mfn1> <domid2> <mfn2>\n"
@@ -80,10 +81,10 @@ int dump_p2m_func(int argc, char *argv[])
         return -1;
     }
 
-	/* Meng:Print dominfo*/
-	printf(" ---Dumping xc_dominfo for domain %d ---\n", domid);
-	printf("nr_pages=%lu, nr_outstanding_pages=%lu, nr_shared_pages=%lu, nr_paged_pages=%lu\n",
-			info.nr_pages,info.nr_outstanding_pages, info.nr_shared_pages, info.nr_paged_pages);
+    /* Meng:Print dominfo*/
+    printf(" ---Dumping xc_dominfo for domain %d ---\n", domid);
+    printf("nr_pages=%lu, nr_outstanding_pages=%lu, nr_shared_pages=%lu, nr_paged_pages=%lu\n",
+            info.nr_pages,info.nr_outstanding_pages, info.nr_shared_pages, info.nr_paged_pages);
 
     /* Retrieve all the info about the domain's memory */
     memset(&minfo, 0, sizeof(minfo));
@@ -104,8 +105,8 @@ int dump_p2m_func(int argc, char *argv[])
         printf("  pfn=0x%lx ==> mfn=0x%lx (type 0x%lx)", i, minfo.p2m_table[i],
                pagetype >> XEN_DOMCTL_PFINFO_LTAB_SHIFT);
 
-		/* Meng:dump mfa type(12 highest bit + 12lowest bit) and PGT_COUNT*/
-		printf(" pfn_type=0x%lx pfn_type&PGT_count_mask=0x%lx",minfo.pfn_type[i], minfo.pfn_type[i] & PGT_count_mask);
+        /* Meng:dump mfa type(12 highest bit + 12lowest bit) and PGT_COUNT*/
+        //printf(" pfn_type=0x%lx pfn_type&PGT_count_mask=0x%lx",minfo.pfn_type[i], minfo.pfn_type[i] & PGT_count_mask);
 
         if ( is_mapped(minfo.p2m_table[i]) )
             printf(" [mapped]");
@@ -373,6 +374,99 @@ int memcmp_mfns_func(int argc, char *argv[])
 }
 
 
+int dump_p2m_pgc_func(int argc, char *argv[])
+{
+    struct xc_domain_meminfo minfo;
+    xc_dominfo_t info;
+    unsigned long i;
+    int domid;
+
+    if ( argc < 1 )
+    {
+        help_func(0, NULL);
+        return 1;
+    }
+    domid = atoi(argv[0]);
+
+    if ( xc_domain_getinfo(xch, domid, 1, &info) != 1 ||
+         info.domid != domid )
+    {
+        ERROR("Failed to obtain info for domain %d\n", domid);
+        return -1;
+    }
+
+    /* Meng:Print dominfo*/
+    printf(" ---Dumping xc_dominfo for domain %d ---\n", domid);
+    printf("nr_pages=%lu, nr_outstanding_pages=%lu, nr_shared_pages=%lu, nr_paged_pages=%lu\n",
+            info.nr_pages,info.nr_outstanding_pages, info.nr_shared_pages, info.nr_paged_pages);
+
+    /* Retrieve all the info about the domain's memory */
+    memset(&minfo, 0, sizeof(minfo));
+    if ( xc_map_domain_meminfo(xch, domid, &minfo) )
+    {
+        ERROR("Could not map domain %d memory information\n", domid);
+        return -1;
+    }
+
+    printf(" --- Dumping P2M for domain %d ---\n", domid);
+    printf(" Guest Width: %u, PT Levels: %u P2M size: = %lu\n",
+           minfo.guest_width, minfo.pt_levels, minfo.p2m_size);
+    for ( i = 0; i < minfo.p2m_size; i++ )
+    {
+        unsigned long pagetype = minfo.pfn_type[i] &
+                                     XEN_DOMCTL_PFINFO_LTAB_MASK;
+
+        printf("  pfn=0x%lx ==> mfn=0x%lx (type 0x%lx) (pfn_type 0x%lx)", i, minfo.p2m_table[i],
+               pagetype >> XEN_DOMCTL_PFINFO_LTAB_SHIFT, minfo.pfn_type[i]);
+
+        /* Meng: is page in use */
+        if( pagetype & XEN_DOMCTL_PFINFO_INUSE )
+            printf(" [inuse]");
+        else
+            printf(" [idle]");
+
+        /* Meng:dump mfa type(12 highest bit + 12lowest bit) and PGT_COUNT*/
+        //printf(" pfn_type=0x%lx pfn_type&PGT_count_mask=0x%lx",minfo.pfn_type[i], minfo.pfn_type[i] & PGT_count_mask);
+
+        if ( is_mapped(minfo.p2m_table[i]) )
+            printf(" [mapped]");
+
+       /* if ( pagetype & XEN_DOMCTL_PFINFO_LPINTAB )
+            printf (" [pinned]");
+	*/
+        if ( pagetype == XEN_DOMCTL_PFINFO_XTAB )
+            printf(" [xtab]");
+        if ( pagetype == XEN_DOMCTL_PFINFO_BROKEN )
+            printf(" [broken]");
+        if ( pagetype == XEN_DOMCTL_PFINFO_XALLOC )
+            printf( " [xalloc]");
+
+        switch ( pagetype & XEN_DOMCTL_PFINFO_LTABTYPE_MASK )
+        {
+            case XEN_DOMCTL_PFINFO_L1TAB:
+                printf(" L1 table");
+                break;
+
+            case XEN_DOMCTL_PFINFO_L2TAB:
+                printf(" L2 table");
+                break;
+
+            case XEN_DOMCTL_PFINFO_L3TAB:
+                printf(" L3 table");
+                break;
+
+            case XEN_DOMCTL_PFINFO_L4TAB:
+                printf(" L4 table");
+                break;
+        }
+
+        printf("\n");
+    }
+    printf(" --- End of P2M for domain %d ---\n", domid);
+
+    xc_unmap_domain_meminfo(xch, &minfo);
+    return 0;
+}
 
 struct {
     const char *name;
@@ -381,6 +475,7 @@ struct {
     { "help", help_func },
     { "dump-m2p", dump_m2p_func },
     { "dump-p2m", dump_p2m_func },
+    { "dump-p2m-pgc", dump_p2m_pgc_func},
     { "dump-ptes", dump_ptes_func },
     { "lookup-pte", lookup_pte_func },
     { "memcmp-mfns", memcmp_mfns_func},
