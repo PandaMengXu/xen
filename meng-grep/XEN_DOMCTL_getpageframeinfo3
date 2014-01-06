@@ -1,0 +1,8 @@
+./xen/arch/x86/domctl.c:    case XEN_DOMCTL_getpageframeinfo3:
+./xen/arch/x86/domctl.c:                if ( domctl->cmd == XEN_DOMCTL_getpageframeinfo3)
+./xen/xsm/flask/hooks.c:    case XEN_DOMCTL_getpageframeinfo3:
+./xen/include/public/domctl.h:/* XEN_DOMCTL_getpageframeinfo3 */
+./xen/include/public/domctl.h:#define XEN_DOMCTL_getpageframeinfo3             61
+./tools/libxc/xc_private.c:    domctl.cmd = XEN_DOMCTL_getpageframeinfo3;/*Meng: different flag type based on this param*/
+./tools/include/xen/domctl.h:/* XEN_DOMCTL_getpageframeinfo3 */
+./tools/include/xen/domctl.h:#define XEN_DOMCTL_getpageframeinfo3             61

@@ -1,0 +1,97 @@
+./xen/include/public/io/libxenvchan.h: *  devices instead of raw MFNs and map_foreign_range.
+./tools/xenstore/xenstored_domain.c:		return xc_map_foreign_range(*xc_handle, domid,
+./tools/libvchan/libxenvchan.h: *  devices instead of raw MFNs and map_foreign_range.
+./tools/xentrace/xentrace.c:    tbufs.t_info = xc_map_foreign_range(xc_handle, DOMID_XEN, tinfo_size,
+./tools/xentrace/xenctx.c:    mapped = xc_map_foreign_range(xenctx.xc_handle, xenctx.domid, XC_PAGE_SIZE, PROT_READ, mfn);
+./tools/misc/xen-mfndump.c:    page = xc_map_foreign_range(xch, domid, PAGE_SIZE, PROT_READ,
+./tools/misc/xen-mfndump.c:        page = xc_map_foreign_range(xch, domid, PAGE_SIZE, PROT_READ,
+./tools/misc/xen-mfndump.c:    page1 = xc_map_foreign_range(xch, domid1, PAGE_SIZE, PROT_READ, mfn1);
+./tools/misc/xen-mfndump.c:    page2 = xc_map_foreign_range(xch, domid2, PAGE_SIZE, PROT_READ, mfn2);
+./tools/libxl/libxl_dom.c:    va_map = xc_map_foreign_range(handle, domid,
+./tools/debugger/kdd/kdd-xen.c:        map = xc_map_foreign_range(g->xc_handle,
+./tools/qemu-xen-traditional-dir-remote/hw/xen_console.c:        con->sring = xc_map_foreign_range(xen_xc, con->xendev.dom,
+./tools/qemu-xen-traditional-dir-remote/hw/xenfb.c:    c->page = xc_map_foreign_range(xen_xc, c->xendev.dom,
+./tools/qemu-xen-traditional-dir-remote/hw/xen_machine_fv.c:    shared_page = xc_map_foreign_range(xc_handle, domid, XC_PAGE_SIZE,
+./tools/qemu-xen-traditional-dir-remote/hw/xen_machine_fv.c:    buffered_io_page = xc_map_foreign_range(xc_handle, domid, XC_PAGE_SIZE,
+./tools/qemu-xen-traditional-dir-remote/hw/xen_machine_fv.c:    buffered_pio_page = xc_map_foreign_range(xc_handle, domid, XC_PAGE_SIZE,
+./tools/libxc/xenctrl.h:void *xc_map_foreign_range(xc_interface *xch, uint32_t dom,
+./tools/libxc/xc_minios.c:static void *minios_privcmd_map_foreign_range(xc_interface *xch, xc_osdep_handle h,
+./tools/libxc/xc_minios.c:static void *minios_privcmd_map_foreign_ranges(xc_interface *xch, xc_osdep_handle h,
+./tools/libxc/xc_minios.c:        .map_foreign_range = &minios_privcmd_map_foreign_range,
+./tools/libxc/xc_minios.c:        .map_foreign_ranges = &minios_privcmd_map_foreign_ranges,
+./tools/libxc/xc_domain.c:    live_shinfo = xc_map_foreign_range(xch, domid, PAGE_SIZE, PROT_READ,
+./tools/libxc/xc_linux_osdep.c:static void *linux_privcmd_map_foreign_range(xc_interface *xch, xc_osdep_handle h,
+./tools/libxc/xc_linux_osdep.c:static void *linux_privcmd_map_foreign_ranges(xc_interface *xch, xc_osdep_handle h,
+./tools/libxc/xc_linux_osdep.c:        .map_foreign_range = &linux_privcmd_map_foreign_range,
+./tools/libxc/xc_linux_osdep.c:        .map_foreign_ranges = &linux_privcmd_map_foreign_ranges,
+./tools/libxc/xc_offline_page.c:    live_shinfo = xc_map_foreign_range(xch, domid,
+./tools/libxc/xc_offline_page.c:            content = xc_map_foreign_range(xch, domid, PAGE_SIZE,
+./tools/libxc/xc_offline_page.c:    old_p = xc_map_foreign_range(xch, domid, PAGE_SIZE,
+./tools/libxc/xc_offline_page.c:        new_p = xc_map_foreign_range(xch, domid, PAGE_SIZE,
+./tools/libxc/xenctrlosdep.h:            void *(*map_foreign_range)(xc_interface *xch, xc_osdep_handle h, uint32_t dom, int size, int prot,
+./tools/libxc/xenctrlosdep.h:            void *(*map_foreign_ranges)(xc_interface *xch, xc_osdep_handle h, uint32_t dom, size_t size, int prot,
+./tools/libxc/xc_tbuf.c:    t_info = xc_map_foreign_range(xch, DOMID_XEN,
+./tools/libxc/xc_private.c:    void *vaddr = xc_map_foreign_range(
+./tools/libxc/xc_private.c:    void *vaddr = xc_map_foreign_range(
+./tools/libxc/xenctrl_osdep_ENOSYS.c:static void *ENOSYS_privcmd_map_foreign_range(xc_interface *xch, xc_osdep_handle h, uint32_t dom, int size, int prot,
+./tools/libxc/xenctrl_osdep_ENOSYS.c:    IPRINTF(xch, "ENOSYS_privcmd %p: map_foreign_range: dom%d size %#x prot %#x mfn %ld\n", h, dom, size, prot, mfn);
+./tools/libxc/xenctrl_osdep_ENOSYS.c:static void *ENOSYS_privcmd_map_foreign_ranges(xc_interface *xch, xc_osdep_handle h, uint32_t dom, size_t size, int prot,
+./tools/libxc/xenctrl_osdep_ENOSYS.c:    IPRINTF(xch, "ENOSYS_privcmd %p: map_foreign_ranges: dom%d size %zd prot %#x chunksize %zd entries %p num %d\n", h, dom, size, prot, chunksize, entries, nentries);
+./tools/libxc/xenctrl_osdep_ENOSYS.c:        .map_foreign_range = &ENOSYS_privcmd_map_foreign_range,
+./tools/libxc/xenctrl_osdep_ENOSYS.c:        .map_foreign_ranges = &ENOSYS_privcmd_map_foreign_ranges,
+./tools/libxc/xc_core_x86.c:        xc_map_foreign_range(xch, dom, PAGE_SIZE, PROT_READ,
+./tools/libxc/xc_foreign_memory.c:void *xc_map_foreign_range(xc_interface *xch, uint32_t dom,
+./tools/libxc/xc_foreign_memory.c:    return xch->ops->u.privcmd.map_foreign_range(xch, xch->ops_handle,
+./tools/libxc/xc_foreign_memory.c:void *xc_map_foreign_ranges(xc_interface *xch, uint32_t dom,
+./tools/libxc/xc_foreign_memory.c:    return xch->ops->u.privcmd.map_foreign_ranges(xch, xch->ops_handle,
+./tools/libxc/xc_private.h:void *xc_map_foreign_ranges(xc_interface *xch, uint32_t dom,
+./tools/libxc/xc_solaris.c:static void *xc_map_foreign_range(xc_interface *xch, xc_osdep_handle h,
+./tools/libxc/xc_solaris.c:static void *solaric_privcmd_map_foreign_ranges(xc_interface *xch, xc_osdep_handle h,
+./tools/libxc/xc_solaris.c:        .map_foreign_range = &solaris_privcmd_map_foreign_range,
+./tools/libxc/xc_solaris.c:        .map_foreign_ranges = &solaris_privcmd_map_foreign_ranges,
+./tools/libxc/xc_domain_save.c:    p = xc_map_foreign_range(xch, dom, PAGE_SIZE, PROT_READ, fll);
+./tools/libxc/xc_domain_save.c:    m2p = xc_map_foreign_ranges(xch, DOMID_XEN,
+./tools/libxc/xc_domain_save.c:        PERROR("xc_mmap_foreign_ranges failed");
+./tools/libxc/xc_domain_save.c:        live_shinfo = xc_map_foreign_range(xch, dom, PAGE_SIZE,
+./tools/libxc/xc_dom_x86.c:    shared_info = xc_map_foreign_range(dom->xch, dom->guest_domid,
+./tools/libxc/xc_dom_boot.c:    ptr = xc_map_foreign_ranges(dom->xch, dom->guest_domid,
+./tools/libxc/xc_dom_boot.c:    gnttab = xc_map_foreign_range(xch,
+./tools/libxc/xc_hvm_build_x86.c:    elf->dest_base = xc_map_foreign_ranges(
+./tools/libxc/xc_hvm_build_x86.c:    dest = xc_map_foreign_ranges(
+./tools/libxc/xc_hvm_build_x86.c:    if ( (hvm_info_page = xc_map_foreign_range(
+./tools/libxc/xc_hvm_build_x86.c:    if ( (ident_pt = xc_map_foreign_range(
+./tools/libxc/xc_hvm_build_x86.c:        char *page0 = xc_map_foreign_range(
+./tools/libxc/xc_core.c:    live_shinfo = xc_map_foreign_range(xch, domid, PAGE_SIZE,
+./tools/libxc/xc_core.c:            vaddr = xc_map_foreign_range(
+./tools/libxc/xc_pagetab.c:        map = xc_map_foreign_range(xch, dom, PAGE_SIZE, PROT_READ, 
+./tools/libxc/xc_netbsd.c:static void *netbsd_privcmd_map_foreign_range(xc_interface *xch, xc_osdep_handle h,
+./tools/libxc/xc_netbsd.c:        PERROR("xc_map_foreign_range: mmap failed");
+./tools/libxc/xc_netbsd.c:        PERROR("xc_map_foreign_range: ioctl failed");
+./tools/libxc/xc_netbsd.c:static void *netbsd_privcmd_map_foreign_ranges(xc_interface *xch, xc_osdep_handle h,
+./tools/libxc/xc_netbsd.c:        .map_foreign_range = &netbsd_privcmd_map_foreign_range,
+./tools/libxc/xc_netbsd.c:        .map_foreign_ranges = &netbsd_privcmd_map_foreign_ranges,
+./tools/libxc/xc_domain_restore.c:                    buf = xc_map_foreign_range(xch, dom, PAGE_SIZE,
+./tools/libxc/xc_domain_restore.c:                        ERROR("xc_map_foreign_range for generation id"
+./tools/libxc/xc_domain_restore.c:                    xc_map_foreign_range(xch, dom, PAGE_SIZE,
+./tools/libxc/xc_domain_restore.c:                    PERROR("xc_map_foreign_range failed (for l3tab)");
+./tools/libxc/xc_domain_restore.c:                    xc_map_foreign_range(xch, dom, PAGE_SIZE,
+./tools/libxc/xc_domain_restore.c:                    PERROR("xc_map_foreign_range failed (for l3tab, 2nd)");
+./tools/libxc/xc_domain_restore.c:            start_info = xc_map_foreign_range(
+./tools/libxc/xc_domain_restore.c:                PERROR("xc_map_foreign_range failed (for start_info)");
+./tools/libxc/xc_domain_restore.c:    new_shared_info = xc_map_foreign_range(
+./tools/libxc/xc_domain_restore.c:        PERROR("xc_map_foreign_range failed (for new_shared_info)");
+./tools/libxc/xc_resume.c:    shinfo = xc_map_foreign_range(xch, domid, PAGE_SIZE,
+./tools/libxc/xc_resume.c:        xc_map_foreign_range(xch, domid, PAGE_SIZE, PROT_READ,
+./tools/libxc/xc_resume.c:    start_info = xc_map_foreign_range(xch, domid, PAGE_SIZE,
+./tools/tests/mem-sharing/memshrtool.c:        map = xc_map_foreign_range(xch, domid, 4096, PROT_WRITE, gfn);
+./tools/ocaml/libs/xc/xenctrl_stubs.c:CAMLprim value stub_map_foreign_range(value xch, value dom,
+./tools/ocaml/libs/xc/xenctrl_stubs.c:	intf->addr = xc_map_foreign_range(_H(xch), c_dom,
+./tools/ocaml/libs/xc/xenctrl_stubs.c:		caml_failwith("xc_map_foreign_range error");
+./tools/python/xen/lowlevel/xc/xc.c:    va_map = xc_map_foreign_range(self->xc_handle, dom, XC_PAGE_SIZE,
+./tools/console/daemon/io.c:		/* Fall back to xc_map_foreign_range */
+./tools/console/daemon/io.c:		dom->interface = xc_map_foreign_range(
+./tools/qemu-xen-dir-remote/hw/xen_console.c:        con->sring = xc_map_foreign_range(xen_xc, con->xendev.dom,
+./tools/qemu-xen-dir-remote/hw/xenfb.c:    c->page = xc_map_foreign_range(xen_xc, c->xendev.dom,
+./tools/qemu-xen-dir-remote/xen-all.c:    state->shared_page = xc_map_foreign_range(xen_xc, xen_domid, XC_PAGE_SIZE,
+./tools/qemu-xen-dir-remote/xen-all.c:    state->buffered_io_page = xc_map_foreign_range(xen_xc, xen_domid, XC_PAGE_SIZE,
+./tools/xenmon/xenbaked.c:    tbufs.t_info = xc_map_foreign_range(xc_handle, DOMID_XEN, tinfo_size,

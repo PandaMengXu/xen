@@ -1,0 +1,20 @@
+./xen/arch/x86/domctl.c:    case XEN_DOMCTL_getpageframeinfo:/*Meng:get if a page is inuse*/
+./xen/arch/x86/domctl.c:    case XEN_DOMCTL_getpageframeinfo3:
+./xen/arch/x86/domctl.c:    case XEN_DOMCTL_getpageframeinfo2:
+./xen/arch/x86/domctl.c:                if ( domctl->cmd == XEN_DOMCTL_getpageframeinfo3)
+./xen/xsm/flask/hooks.c:    case XEN_DOMCTL_getpageframeinfo:
+./xen/xsm/flask/hooks.c:    case XEN_DOMCTL_getpageframeinfo2:
+./xen/xsm/flask/hooks.c:    case XEN_DOMCTL_getpageframeinfo3:
+./xen/include/public/domctl.h:/* XEN_DOMCTL_getpageframeinfo */
+./xen/include/public/domctl.h:/* XEN_DOMCTL_getpageframeinfo2 */
+./xen/include/public/domctl.h:/* XEN_DOMCTL_getpageframeinfo3 */
+./xen/include/public/domctl.h:#define XEN_DOMCTL_getpageframeinfo               7
+./xen/include/public/domctl.h:#define XEN_DOMCTL_getpageframeinfo2              8
+./xen/include/public/domctl.h:#define XEN_DOMCTL_getpageframeinfo3             61
+./tools/libxc/xc_private.c:    domctl.cmd = XEN_DOMCTL_getpageframeinfo3;/*Meng: different flag type based on this param*/
+./tools/include/xen/domctl.h:/* XEN_DOMCTL_getpageframeinfo */
+./tools/include/xen/domctl.h:/* XEN_DOMCTL_getpageframeinfo2 */
+./tools/include/xen/domctl.h:/* XEN_DOMCTL_getpageframeinfo3 */
+./tools/include/xen/domctl.h:#define XEN_DOMCTL_getpageframeinfo               7
+./tools/include/xen/domctl.h:#define XEN_DOMCTL_getpageframeinfo2              8
+./tools/include/xen/domctl.h:#define XEN_DOMCTL_getpageframeinfo3             61

@@ -1,0 +1,7 @@
+./stubdom/libxc-x86_64/xenctrl.h:    unsigned long nr_outstanding_pages;
+./stubdom/libxc-x86_64/xc_domain.c:        info->nr_outstanding_pages = domctl.u.getdomaininfo.outstanding_pages;
+./stubdom/libxc-x86_32/xenctrl.h:    unsigned long nr_outstanding_pages;
+./stubdom/libxc-x86_32/xc_domain.c:        info->nr_outstanding_pages = domctl.u.getdomaininfo.outstanding_pages;
+./dist/install/usr/local/include/xenctrl.h:    unsigned long nr_outstanding_pages;
+./tools/libxc/xenctrl.h:    unsigned long nr_outstanding_pages;
+./tools/libxc/xc_domain.c:        info->nr_outstanding_pages = domctl.u.getdomaininfo.outstanding_pages;

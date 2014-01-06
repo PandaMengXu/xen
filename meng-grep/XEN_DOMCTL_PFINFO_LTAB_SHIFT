@@ -1,0 +1,8 @@
+./xen/include/public/domctl.h:#define XEN_DOMCTL_PFINFO_LTAB_SHIFT 28
+./tools/misc/xen-mfndump.c:               pagetype >> XEN_DOMCTL_PFINFO_LTAB_SHIFT);
+./tools/misc/xen-mfndump.c:               pagetype >> XEN_DOMCTL_PFINFO_LTAB_SHIFT);
+./tools/libxc/xc_domain_restore.c:             ((unsigned long)ctx->pt_levels<<XEN_DOMCTL_PFINFO_LTAB_SHIFT) )
+./tools/libxc/xc_domain_restore.c:                  (unsigned long)ctx->pt_levels<<XEN_DOMCTL_PFINFO_LTAB_SHIFT);
+./tools/libxc/xc_domain_restore.c:                 ((unsigned long)ctx->pt_levels<<XEN_DOMCTL_PFINFO_LTAB_SHIFT) )
+./tools/libxc/xc_domain_restore.c:                      (unsigned long)ctx->pt_levels<<XEN_DOMCTL_PFINFO_LTAB_SHIFT);
+./tools/include/xen/domctl.h:#define XEN_DOMCTL_PFINFO_LTAB_SHIFT 28

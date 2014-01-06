@@ -1,0 +1,16 @@
+./xen/arch/x86/tboot.c:    (page_state_is(page, inuse) || page_state_is(page, offlining))
+./xen/common/page_alloc.c:        if ( page_state_is(cur_head, offlined) )
+./xen/common/page_alloc.c:                if ( page_state_is(pg, offlined) )
+./xen/common/page_alloc.c:        if ( !page_state_is(cur_head, offlined) )
+./xen/common/page_alloc.c:        ASSERT(!page_state_is(&pg[i], offlined));
+./xen/common/page_alloc.c:             (page_state_is(&pg[i], offlining)
+./xen/common/page_alloc.c:        if ( page_state_is(&pg[i], offlined) )
+./xen/common/page_alloc.c:                 !page_state_is(pg-mask, free) ||
+./xen/common/page_alloc.c:                 !page_state_is(pg+mask, free) ||
+./xen/common/page_alloc.c:    if ( page_state_is(pg, offlined) )
+./xen/common/page_alloc.c:    if ( page_state_is(pg, offlining) )
+./xen/common/page_alloc.c:    if ( page_state_is(pg, offlined) )
+./xen/common/page_alloc.c:        if ( !mfn_valid(mfn) || !page_state_is(pg, free) )
+./xen/common/page_alloc.c:        if ( page_state_is(pg, free) )
+./xen/include/asm-x86/mm.h:#define page_state_is(pg, st) (((pg)->count_info&PGC_state) == PGC_state_##st)
+./xen/include/asm-arm/mm.h:#define page_state_is(pg, st) (((pg)->count_info&PGC_state) == PGC_state_##st)

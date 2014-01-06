@@ -1,0 +1,13 @@
+./xen/common/libelf/libelf-dominfo.c:        parms->virt_hypercall = val;
+./xen/common/libelf/libelf-dominfo.c:            parms->virt_hypercall = (strtoull(value, NULL, 0) << 12) +
+./xen/common/libelf/libelf-dominfo.c:    parms->virt_hypercall = UNSET_ADDR;
+./tools/libxc/xc_minios.c:        .hypercall = &minios_privcmd_hypercall,
+./tools/libxc/xc_linux_osdep.c:        .hypercall = &linux_privcmd_hypercall,
+./tools/libxc/xc_dom_core.c:    dom->parms.virt_hypercall = UNSET_ADDR;
+./tools/libxc/xenctrl_osdep_ENOSYS.c:        .hypercall = &ENOSYS_privcmd_hypercall,
+./tools/libxc/xc_private.h:#define DECLARE_HYPERCALL privcmd_hypercall_t hypercall = { 0 }
+./tools/libxc/xc_solaris.c:        .hypercall = &solaris_privcmd_hypercall;
+./tools/libxc/xc_netbsd.c:        .hypercall = &netbsd_privcmd_hypercall,
+./tools/qemu-xen-dir-remote/hw/spapr.c:    cpu_ppc_hypercall = emulate_spapr_hypercall;
+./tools/qemu-xen-dir-remote/hw/ppc_oldworld.c:        hypercall = g_malloc(16);
+./tools/qemu-xen-dir-remote/hw/ppc_newworld.c:        hypercall = g_malloc(16);
