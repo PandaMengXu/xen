@@ -528,6 +528,11 @@ int do_memory_op(xc_interface *xch, int cmd, void *arg, size_t len)
     return ret;
 }
 
+int xc_disable_cache(xc_interface *xch)
+{
+    return do_memory_op(xch, XENMEM_disable_cache, NULL, 0);
+}
+
 long xc_maximum_ram_page(xc_interface *xch)
 {
     return do_memory_op(xch, XENMEM_maximum_ram_page, NULL, 0);

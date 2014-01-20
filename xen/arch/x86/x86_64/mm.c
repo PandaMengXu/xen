@@ -1027,6 +1027,10 @@ long subarch_memory_op(int op, XEN_GUEST_HANDLE_PARAM(void) arg)
 
     switch ( op )
     {
+    case XENMEM_disable_cache:
+        dprintk(XENLOG_ERR,"Dummy hypercall: TODO:Disable cache of all levels\n");
+        printk("Meng: Dummy Hypercall");
+        break;
     case XENMEM_machphys_mfn_list:
         if ( copy_from_guest(&xmml, arg, 1) )
             return -EFAULT;

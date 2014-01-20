@@ -200,7 +200,7 @@ long arch_do_domctl(
 
 			//if ( (page->u.inuse.type_info & PGT_count_mask) != 0 ) /* Meng: borrow pin bit as inuse bit*/
 			if (page_state_is(page,inuse))
-			    type |= XEN_DOMCTL_PFINFO_INUSE
+			    type |= XEN_DOMCTL_PFINFO_INUSE;
                        
 			 /*if ( page->u.inuse.type_info & PGT_pinned )
                             type |= XEN_DOMCTL_PFINFO_LPINTAB;

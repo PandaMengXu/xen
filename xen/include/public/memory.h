@@ -144,6 +144,11 @@ DEFINE_XEN_GUEST_HANDLE(xen_memory_exchange_t);
 #define XENMEM_maximum_ram_page     2
 
 /*
+ * RT-Xen: disable cache
+ */
+#define XENMEM_disable_cache                33 
+
+/*
  * Returns the current or maximum memory reservation, in pages, of the
  * specified domain (may be DOMID_SELF). Returns -ve errcode on failure.
  * arg == addr of domid_t.
@@ -453,6 +458,7 @@ DEFINE_XEN_GUEST_HANDLE(xen_mem_sharing_op_t);
  * Caller must be privileged or the hypercall fails.
  */
 #define XENMEM_claim_pages                  24
+
 
 /*
  * XENMEM_claim_pages flags - the are no flags at this time.

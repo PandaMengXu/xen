@@ -1340,6 +1340,8 @@ int xc_clear_domain_page(xc_interface *xch, uint32_t domid,
 int xc_mmuext_op(xc_interface *xch, struct mmuext_op *op, unsigned int nr_ops,
                  domid_t dom);
 
+int xc_disable_cache(xc_interface *xch);
+
 /* System wide memory properties */
 long xc_maximum_ram_page(xc_interface *xch);
 
