@@ -545,14 +545,14 @@ static long memory_exchange(XEN_GUEST_HANDLE_PARAM(xen_memory_exchange_t) arg)
 long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
 {
     struct domain *d;
-    long rc;
+    long rc = -EINVAL;
     unsigned int address_bits;
     unsigned long start_extent;
     struct xen_memory_reservation reservation;
     struct memop_args args;
     domid_t domid;
     int op = cmd & MEMOP_CMD_MASK;
-
+    
     switch ( op )
     {
     case XENMEM_increase_reservation:
@@ -635,7 +635,20 @@ long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
         break;
 
     case XENMEM_maximum_ram_page:
+        gdprintk(XENLOG_WARNING,"gdprintk: XENMEM_maximum_ram_page\n");
+        printk("<1> printk:XENMEM_maximum_ram_page\n");
         rc = max_page;
+        //rc = 1;
+        break;
+
+    case XENMEM_disable_cache:
+        gdprintk(XENLOG_WARNING, "gdprintk:XENMEM_disable_cache disable cache! TODO IMPLEMENT\n");
+        printk("<1>printk: disable cache! TODO IMPLEMENT\n");
+        break;
+
+    case XENMEM_show_cache:
+        gdprintk(XENLOG_WARNING, "gdprintk:XENMEM_show_cache_status! TODO IMPLEMENT\n");
+        printk("<1>printk: XENMEM_show_cache_status! TODO IMPLEMENT\n");
         break;
 
     case XENMEM_current_reservation:
@@ -743,6 +756,9 @@ long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
         rc = arch_memory_op(op, arg);
         break;
     }
+
+    //gdprintk(XENLOG_WARNING,"gdprintk: Begin of do_memory_op @memory.c\n");
+    printk("printk: Begin of do_memory_op @memory.c\ncmd is %lu\n",cmd);
 
     return rc;
 }

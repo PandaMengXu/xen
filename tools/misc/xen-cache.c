@@ -17,11 +17,33 @@ int help_func(int argc, char *argv[])
             "Usage: xen-cache <command> [args]\n"
             "Command:\n"
             "  help                     show this help\n"
+            "  show                     show cache status (30bit of CR0)\n"
             "  disable                  disable all cache levels\n"
             "  enable                   enable cache_level L1/L2/L3\n"
             );
     
     return 0;
+}
+
+int show_func(int argc, char *argv[])
+{
+    int ret = -1;
+    
+    if ( argc > 0 )
+    {
+        help_func(0, NULL);
+        return 1;
+    }
+
+    ret = xc_show_cache(xch);
+   // ret = xc_maximum_ram_page(xch);
+    printf("return value:%d\n", ret);
+    if ( !ret )
+        printf("The 30bit(CD) of CR0 is %d\n", ret);
+    else
+        ERROR("Failed to disable cache of all levels");
+
+    return ret;
 }
 
 int disable_func(int argc, char *argv[])
@@ -34,6 +56,7 @@ int disable_func(int argc, char *argv[])
     }
 
     ret = xc_disable_cache(xch);
+   // ret = xc_maximum_ram_page(xch);
     printf("return value:%d\n", ret);
     if ( !ret )
         printf(" All cache levels have been disabled!\n");
@@ -62,6 +85,7 @@ struct{
     int (*func)(int argc, char *argv[]);
 } opts[] = {
     { "help", help_func },
+    { "show", show_func},
     { "disable", disable_func },
     { "enable", enable_func },
 };
