@@ -147,7 +147,9 @@ DEFINE_XEN_GUEST_HANDLE(xen_memory_exchange_t);
  * RT-Xen: disable cache
  */
 #define XENMEM_disable_cache        25
-#define XENMEM_show_cache           26
+#define XENMEM_enable_cache         26
+#define XENMEM_show_cache           27
+
 
 /*
  * Returns the current or maximum memory reservation, in pages, of the

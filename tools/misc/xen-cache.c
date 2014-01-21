@@ -8,7 +8,7 @@
 #include "xg_save_restore.h"
 
 #define ARRAY_SIZE(a) (sizeof (a) / sizeof ((a)[0]))
-
+#define CD_SHIFT 30
 static xc_interface *xch;
 
 int help_func(int argc, char *argv[])
@@ -27,28 +27,33 @@ int help_func(int argc, char *argv[])
 
 int show_func(int argc, char *argv[])
 {
-    int ret = -1;
-    
+    unsigned long cr0 = 2;
+    int cd = -1;    
+
     if ( argc > 0 )
     {
         help_func(0, NULL);
         return 1;
     }
 
-    ret = xc_show_cache(xch);
-   // ret = xc_maximum_ram_page(xch);
-    printf("return value:%d\n", ret);
-    if ( !ret )
-        printf("The 30bit(CD) of CR0 is %d\n", ret);
+    cr0 = (unsigned long) xc_show_cache(xch);
+    cd = ( (cr0 >> CD_SHIFT) & 0x1 );
+    printf("return value:%#018lx\n"
+            "30bit(CD) of CR0 is: %d\n", 
+            cr0, cd);
+    if ( cd == 1 )
+        printf("The cache is disabled\n");
+    else if( cd == 0 )
+        printf("The cache is enabled\n");
     else
-        ERROR("Failed to disable cache of all levels");
+        ERROR("Failed to show 30th bit (CD) of CR0\n");
 
-    return ret;
+    return 0;
 }
 
 int disable_func(int argc, char *argv[])
 {
-    int ret = -1;
+    int ret = -EINVAL;
     if ( argc > 0 )
     {
         help_func(0, NULL);
@@ -68,15 +73,21 @@ int disable_func(int argc, char *argv[])
 
 int enable_func(int argc, char *argv[])
 {
-   // int ret = -1;
+    int ret = -EINVAL;
     if (argc > 0 )
     {
         help_func(0, NULL);
         return 1;
     }
     
-    printf("Dump func: TO Implement");
+    ret = xc_enable_cache(xch);
     
+    printf("Enable cache return value:%d\n", ret);
+    if ( !ret )
+        printf(" All cache levels have been enabled!\n");
+    else
+        ERROR("Failed to enable cache of all levels");
+
     return 0;
 }
 
