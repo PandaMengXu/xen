@@ -552,6 +552,7 @@ long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
     struct memop_args args;
     domid_t domid;
     int op = cmd & MEMOP_CMD_MASK;
+    unsigned long cr0 = 0;
     
     switch ( op )
     {
@@ -635,47 +636,53 @@ long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
         break;
 
     case XENMEM_maximum_ram_page:
-        gdprintk(XENLOG_WARNING,"gdprintk: XENMEM_maximum_ram_page\n");
-        printk("<1> printk:XENMEM_maximum_ram_page\n");
         rc = max_page;
         break;
 
     case XENMEM_disable_cache:
-         __asm__ __volatile__(
-              "pushq %rax\n\t"
-              "movq %cr0,%rax\n\t"
-              "orq $0x40000000,%rax\n\t"  
-              "movq %rax,%cr0\n\t"
+        __asm__ __volatile__( 
+              "pushq %%rax\n\t"
+              "movq %%cr0,%%rax\n\t"
+              "orq $0x40000000,%%rax\n\t"  
+              "movq %%rax,%%cr0\n\t"
+              "movq %%cr0, %0\n\t"
               "wbinvd\n\t"
-              "popq  %rax");
-        rc = 0;
-        gdprintk(XENLOG_WARNING, "gdprintk:XENMEM_disable_cache disable cache! TODO IMPLEMENT\n");
-        printk("<1>printk: disable cache! \n");
-        break;
+              "popq  %%rax"
+              :"=r" (cr0)
+              :
+              :
+       );
+        //gdprintk(XENLOG_WARNING, "gdprintk:XENMEM_disable_cache disable cache! TODO IMPLEMENT\n");
+        printk("<1>printk: disable cache! cr0=%#018lx\n", cr0);
+        return (long) cr0;
     
     case XENMEM_enable_cache:
          __asm__ __volatile__(
-              "pushq %rax\n\t"
-              "movq %cr0,%rax\n\t"
-              "andq $0xffffffffbfffffff,%rax\n\t"       /*~0x4000000*/   
-              "movq %rax,%cr0\n\t"
-              "popq  %rax");
-        rc = 0;
-        printk("<1>printk: enable cache\n");
-        break;
+                "pushq %%rax\n\t"
+                "movq %%cr0,%%rax\n\t"
+                "andq $0xffffffffbfffffff,%%rax\n\t"       /*~0x4000000*/   
+                "movq %%rax,%%cr0\n\t"
+                "movq %%cr0, %0\n\t"
+                "popq  %%rax"
+                :"=r" (cr0)
+                :
+                :
+        );
+        printk("<1>printk: enable cache; cr0=%#018lx\n", cr0);
+        return (long) cr0;
 
     case XENMEM_show_cache:
        __asm__ __volatile__("pushq %%rax\n\t"
                             "movq %%cr0, %%rax\n\t"
                             "movq %%rax, %0\n\t"
                             "popq %%rax"
-                            :"=r" (rc)
+                            :"=r" (cr0)
                             :
                             :
             );
-        gdprintk(XENLOG_WARNING, "gdprintk:XENMEM_show_cache_status! CR0 value is %ld\n", rc);
-        printk("<1>printk: XENMEM_show_cache_status! CR0 value is %ld\n",rc);
-        break;
+        //gdprintk(XENLOG_WARNING, "gdprintk:XENMEM_show_cache_status! CR0 value is %#018lx\n", cr0);
+        printk("<1>printk: XENMEM_show_cache_status! CR0 value is %#018lx\n",cr0);
+        return (long) cr0;
 
     case XENMEM_current_reservation:
     case XENMEM_maximum_reservation:
