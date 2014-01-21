@@ -654,8 +654,9 @@ long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
        );
         //gdprintk(XENLOG_WARNING, "gdprintk:XENMEM_disable_cache disable cache! TODO IMPLEMENT\n");
         printk("<1>printk: disable cache! cr0=%#018lx\n", cr0);
-        return (long) cr0;
-    
+        rc = 0;
+        break;
+
     case XENMEM_enable_cache:
          __asm__ __volatile__(
                 "pushq %%rax\n\t"
@@ -669,7 +670,8 @@ long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
                 :
         );
         printk("<1>printk: enable cache; cr0=%#018lx\n", cr0);
-        return (long) cr0;
+        rc = 0;
+        break;
 
     case XENMEM_show_cache:
        __asm__ __volatile__("pushq %%rax\n\t"
