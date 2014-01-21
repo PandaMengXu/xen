@@ -542,6 +542,37 @@ static long memory_exchange(XEN_GUEST_HANDLE_PARAM(xen_memory_exchange_t) arg)
     return rc;
 }
 
+void disable_cache(void *cr0)
+{
+    __asm__ __volatile__( 
+        "pushq %%rax\n\t"              
+        "movq %%cr0,%%rax\n\t"         
+        "orq $0x40000000,%%rax\n\t"    
+        "movq %%rax,%%cr0\n\t"         
+        "movq %%cr0, %0\n\t"           
+        "wbinvd\n\t"
+        "popq  %%rax"
+        :"=r" ( *((unsigned long*) cr0) )
+        :
+        :
+        );
+}
+
+void enable_cache(void *cr0)
+{
+     __asm__ __volatile__(
+        "pushq %%rax\n\t"
+        "movq %%cr0,%%rax\n\t"
+        "andq $0xffffffffbfffffff,%%rax\n\t"       /*~0x4000000*/
+        "movq %%rax,%%cr0\n\t"
+        "movq %%cr0, %0\n\t"
+        "popq  %%rax"
+        :"=r" ( *((unsigned long*) cr0) )
+        :
+        :
+        );
+}
+
 long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
 {
     struct domain *d;
@@ -640,7 +671,7 @@ long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
         break;
 
     case XENMEM_disable_cache:
-        __asm__ __volatile__( 
+     /*   __asm__ __volatile__( 
               "pushq %%rax\n\t"
               "movq %%cr0,%%rax\n\t"
               "orq $0x40000000,%%rax\n\t"  
@@ -651,24 +682,25 @@ long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
               :"=r" (cr0)
               :
               :
-       );
-        //gdprintk(XENLOG_WARNING, "gdprintk:XENMEM_disable_cache disable cache! TODO IMPLEMENT\n");
+       );*/
+        smp_call_function(&disable_cache, &cr0,1);
         printk("<1>printk: disable cache! cr0=%#018lx\n", cr0);
         rc = 0;
         break;
 
     case XENMEM_enable_cache:
-         __asm__ __volatile__(
+      /*   __asm__ __volatile__(
                 "pushq %%rax\n\t"
                 "movq %%cr0,%%rax\n\t"
-                "andq $0xffffffffbfffffff,%%rax\n\t"       /*~0x4000000*/   
+                "andq $0xffffffffbfffffff,%%rax\n\t"       
                 "movq %%rax,%%cr0\n\t"
                 "movq %%cr0, %0\n\t"
                 "popq  %%rax"
                 :"=r" (cr0)
                 :
                 :
-        );
+        );*/
+        smp_call_function(&enable_cache, &cr0 , 1);
         printk("<1>printk: enable cache; cr0=%#018lx\n", cr0);
         rc = 0;
         break;
