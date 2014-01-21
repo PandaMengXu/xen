@@ -3,7 +3,6 @@
 #include <xc_core.h>
 #include <errno.h>
 #include <unistd.h>
-#include <xen/mm_mask.h>
 
 #include "xg_save_restore.h"
 
