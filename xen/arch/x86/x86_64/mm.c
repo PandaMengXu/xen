@@ -1015,6 +1015,38 @@ void __init subarch_init_memory(void)
     }
 }
 
+void disable_cache(void *cr0)
+{
+    __asm__ __volatile__(
+        "pushq %%rax\n\t"
+        "movq %%cr0,%%rax\n\t"
+        "orq $0x40000000,%%rax\n\t"
+        "movq %%rax,%%cr0\n\t"
+        "movq %%cr0, %0\n\t"
+        "wbinvd\n\t"
+        "popq  %%rax"
+        :"=r" ( *((unsigned long*) cr0) )
+        :
+        :
+        );
+}
+
+void enable_cache(void *cr0)
+{
+     __asm__ __volatile__(
+        "pushq %%rax\n\t"
+        "movq %%cr0,%%rax\n\t"
+        "andq $0xffffffffbfffffff,%%rax\n\t"       
+        "movq %%rax,%%cr0\n\t"
+        "movq %%cr0, %0\n\t"
+        "popq  %%rax"
+        :"=r" ( *((unsigned long*) cr0) )
+        :
+        :
+        );
+}
+
+
 long subarch_memory_op(int op, XEN_GUEST_HANDLE_PARAM(void) arg)
 {
     struct xen_machphys_mfn_list xmml;
@@ -1024,19 +1056,68 @@ long subarch_memory_op(int op, XEN_GUEST_HANDLE_PARAM(void) arg)
     xen_pfn_t mfn, last_mfn;
     unsigned int i;
     long rc = 0;
+    unsigned long cr0 = 0;    
+    uint64_t perf_count = 0;
 
     switch ( op )
     {
     case XENMEM_disable_cache:
-        dprintk(XENLOG_ERR,"Dummy hypercall: TODO:Disable cache of all levels\n");
-        printk("Meng: Dummy Hypercall");
-        /*__asm__ __volatile__(
-        "push %eax\n\t"
-        "movl %cr0,%eax\n\t"
-        "orl $0x40000000,%eax\n\t"  
-        "movl %eax,%cr0\n\t"
-        "wbinvd\n\t"
-        "pop  %eax\n\t");*/
+        /*__asm__ __volatile__( 
+              "pushq %%rax\n\t"
+              "movq %%cr0,%%rax\n\t"
+              "orq $0x40000000,%%rax\n\t"  
+              "movq %%rax,%%cr0\n\t"
+              "movq %%cr0, %0\n\t"
+              "wbinvd\n\t"
+              "popq  %%rax"
+              :"=r" (cr0)
+              :
+              :
+       );*/
+        smp_call_function(&disable_cache, &cr0,1);
+        printk("<1>disable cache! cr0=%#018lx\n", cr0);
+        rc = 0;
+        break;
+
+    case XENMEM_enable_cache:
+         /*__asm__ __volatile__(
+                "pushq %%rax\n\t"
+                "movq %%cr0,%%rax\n\t"
+                "andq $0xffffffffbfffffff,%%rax\n\t"       
+                "movq %%rax,%%cr0\n\t"
+                "movq %%cr0, %0\n\t"
+                "popq  %%rax"
+                :"=r" (cr0)
+                :
+                :
+        );*/
+        smp_call_function(&enable_cache, &cr0 , 1);
+        printk("<1>enable cache; cr0=%#018lx\n", cr0);
+        rc = 0;
+        break;
+
+    case XENMEM_show_cache:
+       __asm__ __volatile__("pushq %%rax\n\t"
+                            "movq %%cr0, %%rax\n\t"
+                            "movq %%rax, %0\n\t"
+                            "popq %%rax"
+                            :"=r" (cr0)
+                            :
+                            :
+            );
+        //gdprintk(XENLOG_WARNING, "gdprintk:XENMEM_show_cache_status! CR0 value is %#018lx\n", cr0);
+        printk("<1>CR0 value is %#018lx\n",cr0);
+        return (long) cr0;
+        //
+    case XENMEM_count_perf:
+        if( copy_from_guest(&perf_count, arg,1) )
+            return -EFAULT;
+        dprintk(XENLOG_INFO, "XENMEM_count_perf, perf_count is %#018lx\n", perf_count );
+        //printk("<1>XENMEM_count_perf, perf_count is %#018lx\n", perf_count);
+        perf_count = 0x11111;
+        dprintk(XENLOG_INFO, "change perf_count to %#018lx\n", perf_count);
+        if( copy_to_guest(arg, &perf_count, 1) )
+            return -EFAULT;
         break;
     case XENMEM_machphys_mfn_list:
         if ( copy_from_guest(&xmml, arg, 1) )

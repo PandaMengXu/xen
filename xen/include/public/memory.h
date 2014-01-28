@@ -150,6 +150,10 @@ DEFINE_XEN_GUEST_HANDLE(xen_memory_exchange_t);
 #define XENMEM_enable_cache         26
 #define XENMEM_show_cache           27
 
+/*
+ * RT-Xen: cache performance counter
+ */
+#define XENMEM_count_perf           28
 
 /*
  * Returns the current or maximum memory reservation, in pages, of the

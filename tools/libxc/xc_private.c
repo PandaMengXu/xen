@@ -528,6 +528,11 @@ int do_memory_op(xc_interface *xch, int cmd, void *arg, size_t len)
     return ret;
 }
 
+int xc_count_perf(xc_interface *xch, uint64_t* perf_count)
+{
+    return do_memory_op(xch, XENMEM_count_perf, perf_count, sizeof(*perf_count));
+}
+
 int xc_show_cache(xc_interface *xch)
 {
     return do_memory_op(xch, XENMEM_show_cache, NULL, 0);

@@ -5,9 +5,23 @@
 #include <unistd.h>
 
 #include "xg_save_restore.h"
+#include <xen/rtxen_perf.h>
 
-#define ARRAY_SIZE(a) (sizeof (a) / sizeof ((a)[0]))
-#define CD_SHIFT 30
+#define ARRAY_SIZE(a)       (sizeof (a) / sizeof ((a)[0]))
+#define CD_SHIFT            30
+
+/*move to rtxen_perf.h*/
+#define CACHE_EVENT_MISS    (0x1 << 16)
+#define CACHE_EVENT_HIT     (0x2 << 16)
+#define CACHE_EVENT_ALL     (0x3 << 16)
+#define CACHE_EVENT_MASK    (0x0ffff << 16)
+
+#define CACHE_LEVEL_L1      (0x1)
+#define CACHE_LEVEL_L2      (0x2)
+#define CACHE_LEVEL_L3      (0x3)
+#define CACHE_LEVEL_MASK    (0xffff)
+
+
 static xc_interface *xch;
 
 int help_func(int argc, char *argv[])
@@ -19,7 +33,81 @@ int help_func(int argc, char *argv[])
             "  show                     show cache status (30bit of CR0)\n"
             "  disable                  disable all cache levels\n"
             "  enable                   enable cache_level L1/L2/L3\n"
+            "  count-perf [miss|hit|all] [L1|L2|L3]\n"
+            "                           count cache [miss|hit|all-access] of [L1|L2|L3] cache\n" 
             );
+    
+    return 0;
+}
+
+struct{
+    const char *name;
+    int64_t cache_event_num;
+} cache_event[] = {
+    { "miss", CACHE_EVENT_MISS},
+    { "hit", CACHE_EVENT_HIT},
+    { "all", CACHE_EVENT_ALL},
+};
+
+struct{
+    const char *name;
+    int64_t cache_level_num;
+} cache_level[] = {
+    { "L1", CACHE_LEVEL_L1},
+    { "L2", CACHE_LEVEL_L2},
+    { "L3", CACHE_LEVEL_L3},
+};
+
+
+int count_perf_func(int argc, char *argv[])
+{
+    int i = 0, ret = -EINVAL;
+    uint64_t perf_count = 0;
+
+    if( argc != 2 )
+    {
+        help_func(0,NULL);
+        return 1;
+    }
+    
+    for( i = 0; i < ARRAY_SIZE(cache_event); i++)
+    {
+        if( !strncmp(cache_event[i].name, argv[0], strlen(argv[0])) )
+            break;
+    }
+    
+    if( i == ARRAY_SIZE(cache_event) )
+    {
+        fprintf(stderr, "Unknown option '%s'\n", argv[0]);
+        help_func(0,NULL);
+        return 1;
+    }
+
+    perf_count |= cache_event[i].cache_event_num;
+    
+    for( i = 0; i < ARRAY_SIZE(cache_level); i++)
+    {
+        if( !strncmp(cache_level[i].name, argv[1], strlen(argv[1])) )
+            break;
+    }
+
+    if( i == ARRAY_SIZE(cache_level) )
+    {
+        fprintf(stderr, "Unknown option '%s'\n", argv[1]);
+        help_func(0, NULL);
+        return 1;
+    }
+    
+    perf_count |= cache_level[i].cache_level_num;
+    
+    printf("Before hypercall: perf_count = %#018lx\n", perf_count);
+
+    ret = xc_count_perf(xch, &perf_count);
+    
+    if( ret != 0 )
+        ERROR("Failed to record perf_count %#018lx\n", perf_count);
+    
+    printf("After hypercall: perf_count %#018lx\n", perf_count);
     
     return 0;
 }
@@ -98,6 +186,7 @@ struct{
     { "show", show_func},
     { "disable", disable_func },
     { "enable", enable_func },
+    { "count-perf", count_perf_func },
 };
 
 int main(int argc, char *argv[])
