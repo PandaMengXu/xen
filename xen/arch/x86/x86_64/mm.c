@@ -38,6 +38,7 @@
 #include <asm/mem_sharing.h>
 #include <public/memory.h>
 
+
 /* Parameters for PFN/MADDR compression. */
 unsigned long __read_mostly max_pdx;
 unsigned long __read_mostly pfn_pdx_bottom_mask = ~0UL;
@@ -1046,6 +1047,57 @@ void enable_cache(void *cr0)
         );
 }
 
+void count_perf_cache(uint64_t perf_count)
+{
+    int eax = 0, ecx = 0, edx = 0;
+    uint64_t l1_miss, l1_hit, l2_miss, l2_hit, l3_miss, l3_hit;
+    uint64_t l1_all, l2_all, l3_all;
+
+    SET_MSR_USR_BIT(eax);
+
+    if( (perf_count & CACHE_LEVEL_L1_MASK) == CACHE_LEVEL_L1 )
+    {
+        //TODO   
+    }
+
+    if( (perf_count & CACHE_LEVEL_L2_MASK) == CACHE_LEVEL_L2 )
+    {
+        /*set counter for L2 cache all req*/
+        SET_EVENT_MASK(eax, L2_ALLREQ_EVENT, L2_ALLREQ_MASK);
+        ecx = PERFEVTSEL0; /*use Performance Counter 0 to record the event*/
+        WRITE_MSR(eax, ecx);
+
+        /*set counter for L2 cache all miss*/
+        eax = 0;
+        SET_EVENT_MASK(eax, L2_ALLMISS_EVENT, L2_ALLMISS_MASK);        
+        ecx = PERFEVTSEL1;
+        WRTIE_MSR(eax, ecx);
+
+        sleep(2); /*wait 2 second to count*/
+
+        /*read counter of L2 cache all req*/        
+        ecx = PMC0;
+        eax = 0;
+        edx = 0;
+        READ_MSR(ecx, eax, edx);
+        l2_all = ( (edx << 32) | eax );
+
+        /*read counter of L2 cache all miss*/
+        ecx = PMC1;
+        eax = 0;
+        edx = 0;
+        READ_MSR(ecx, eax, edx);
+        l2_miss = ( (edx << 32) | eax );
+        
+        printk("<1>In %ds, L2 cache miss:%llu\t cache hit:%llu\n", l2_miss, l2_all - l2_miss);
+    }
+
+    if( (perf_count & CACHE_LEVEL_L3_MASK) == CACHE_LEVEL_L3 )
+    {
+        //TODO same with L2 cache
+    }
+
+}
 
 long subarch_memory_op(int op, XEN_GUEST_HANDLE_PARAM(void) arg)
 {

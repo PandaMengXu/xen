@@ -11,16 +11,17 @@
 #define CD_SHIFT            30
 
 /*move to rtxen_perf.h*/
+/*
 #define CACHE_EVENT_MISS    (0x1 << 16)
 #define CACHE_EVENT_HIT     (0x2 << 16)
 #define CACHE_EVENT_ALL     (0x3 << 16)
-#define CACHE_EVENT_MASK    (0x0ffff << 16)
+#define CACHE_EVENT_MASK    (0x0ffff)
 
 #define CACHE_LEVEL_L1      (0x1)
 #define CACHE_LEVEL_L2      (0x2)
 #define CACHE_LEVEL_L3      (0x3)
-#define CACHE_LEVEL_MASK    (0xffff)
-
+#define CACHE_LEVEL_MASK    (0xffff << 16)
+*/
 
 static xc_interface *xch;
 
