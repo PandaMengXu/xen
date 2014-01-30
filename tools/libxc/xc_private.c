@@ -528,9 +528,37 @@ int do_memory_op(xc_interface *xch, int cmd, void *arg, size_t len)
     return ret;
 }
 
-int xc_count_perf(xc_interface *xch, uint64_t* perf_count)
+int xc_count_perf(xc_interface *xch, rtxen_perf_counter_t* perf_counter, int delay_ms)
 {
-    return do_memory_op(xch, XENMEM_count_perf, perf_count, sizeof(*perf_count));
+    int cpu_id;
+    rtxen_perf_counter_t perf_counter_start = *perf_counter;
+    rtxen_perf_counter_t perf_counter_finish = *perf_counter;
+    
+    perf_counter_start.op = (SET_MSR | READ_MSR);
+    perf_counter_finish.op = READ_MSR;
+
+    if( do_memory_op(xch, XENMEM_count_perf, &perf_counter_start, sizeof(*perf_counter)) != 0)
+        PERROR("Could not set performance counter");
+    
+    usleep(delay_ms * 1000);
+    
+    if( do_memory_op(xch, XENMEM_count_perf, &perf_counter_finish, sizeof(*perf_counter)) != 0)
+        PERROR("Could not set performance counter");
+ 
+    for( cpu_id = 0; cpu_id < RTXEN_CPU_MAXNUM; cpu_id++ )
+    {
+        perf_counter->out[cpu_id].l1I_miss = perf_counter_finish.out[cpu_id].l1I_miss - perf_counter_start.out[cpu_id].l1I_miss;    
+        perf_counter->out[cpu_id].l1I_hit = perf_counter_finish.out[cpu_id].l1I_hit - perf_counter_start.out[cpu_id].l1I_hit;    
+        perf_counter->out[cpu_id].l1D_all = perf_counter_finish.out[cpu_id].l1D_all - perf_counter_start.out[cpu_id].l1D_all;    
+        perf_counter->out[cpu_id].l1D_ldmiss = perf_counter_finish.out[cpu_id].l1D_ldmiss - perf_counter_start.out[cpu_id].l1D_ldmiss;
+        perf_counter->out[cpu_id].l1D_stmiss = perf_counter_finish.out[cpu_id].l1D_stmiss - perf_counter_start.out[cpu_id].l1D_stmiss;    
+        perf_counter->out[cpu_id].l2_all = perf_counter_finish.out[cpu_id].l2_all - perf_counter_start.out[cpu_id].l2_all;    
+        perf_counter->out[cpu_id].l2_miss = perf_counter_finish.out[cpu_id].l2_miss - perf_counter_start.out[cpu_id].l2_miss;    
+        perf_counter->out[cpu_id].l3_all = perf_counter_finish.out[cpu_id].l3_all - perf_counter_start.out[cpu_id].l3_all;
+        perf_counter->out[cpu_id].l3_miss = perf_counter_finish.out[cpu_id].l3_miss - perf_counter_start.out[cpu_id].l3_miss;
+    }
+    
+    return 0;
 }
 
 int xc_show_cache(xc_interface *xch)

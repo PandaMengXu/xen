@@ -4,6 +4,8 @@
 #include <errno.h>
 #include <unistd.h>
 
+#include <inttypes.h>
+
 #include "xg_save_restore.h"
 #include <xen/rtxen_perf.h>
 
@@ -23,6 +25,25 @@
 #define CACHE_LEVEL_MASK    (0xffff << 16)
 */
 
+#define INIT_RTXEN_PERF_COUNTER(counter) do{\
+                                            int tmp_i;\
+                                            counter.op = 0;\
+                                            counter.in = 0;\
+                                            for( tmp_i = 0; tmp_i < RTXEN_CPU_MAXNUM; tmp_i++ )\
+                                            {                                       \
+                                                counter.out[tmp_i].cpu_id = 0;      \
+                                                counter.out[tmp_i].l1I_miss = 0;    \
+                                                counter.out[tmp_i].l1I_hit = 0;     \
+                                                counter.out[tmp_i].l1D_all = 0;     \
+                                                counter.out[tmp_i].l1D_ldmiss = 0;  \
+                                                counter.out[tmp_i].l1D_stmiss = 0;  \
+                                                counter.out[tmp_i].l2_all = 0;      \
+                                                counter.out[tmp_i].l2_miss = 0;     \
+                                                counter.out[tmp_i].l3_all = 0;      \
+                                                counter.out[tmp_i].l3_miss = 0;     \
+                                            }                                       \
+                                            }while(0)
+
 static xc_interface *xch;
 
 int help_func(int argc, char *argv[])
@@ -34,7 +55,7 @@ int help_func(int argc, char *argv[])
             "  show                     show cache status (30bit of CR0)\n"
             "  disable                  disable all cache levels\n"
             "  enable                   enable cache_level L1/L2/L3\n"
-            "  count-perf [miss|hit|all] [L1|L2|L3]\n"
+            "  count-perf [miss|hit|all] [L1I|L1D|L2|L3|L2L3] [delay in ms]\n"
             "                           count cache [miss|hit|all-access] of [L1|L2|L3] cache\n" 
             );
     
@@ -54,23 +75,29 @@ struct{
     const char *name;
     int64_t cache_level_num;
 } cache_level[] = {
-    { "L1", CACHE_LEVEL_L1},
+    { "L1I", CACHE_LEVEL_L1I},
+    { "L1D", CACHE_LEVEL_L1D},
     { "L2", CACHE_LEVEL_L2},
     { "L3", CACHE_LEVEL_L3},
+    { "L2L3", CACHE_LEVEL_L2 | CACHE_LEVEL_L3}
 };
 
 
 int count_perf_func(int argc, char *argv[])
 {
     int i = 0, ret = -EINVAL;
-    uint64_t perf_count = 0;
+    int delay_ms;
+    rtxen_perf_counter_t perf_counter;
 
-    if( argc != 2 )
+    if( argc != 3 )
     {
         help_func(0,NULL);
         return 1;
-    }
-    
+    }    
+
+    INIT_RTXEN_PERF_COUNTER(perf_counter);    
+
+    /*Parse cache event and cache level*/
     for( i = 0; i < ARRAY_SIZE(cache_event); i++)
     {
         if( !strncmp(cache_event[i].name, argv[0], strlen(argv[0])) )
@@ -84,7 +111,7 @@ int count_perf_func(int argc, char *argv[])
         return 1;
     }
 
-    perf_count |= cache_event[i].cache_event_num;
+    perf_counter.in |= cache_event[i].cache_event_num;
     
     for( i = 0; i < ARRAY_SIZE(cache_level); i++)
     {
@@ -99,16 +126,41 @@ int count_perf_func(int argc, char *argv[])
         return 1;
     }
     
-    perf_count |= cache_level[i].cache_level_num;
+    perf_counter.in |= cache_level[i].cache_level_num;
     
-    printf("Before hypercall: perf_count = %#018lx\n", perf_count);
+    delay_ms = atoi(argv[2]);
+    if( delay_ms < 0 )
+        fprintf(stderr, "delay (%d) must be larger than 0\n", delay_ms);
 
-    ret = xc_count_perf(xch, &perf_count);
+    /*Count events at priviledge level 0 or (1,2,3) or both*/
+    SET_COUNT_EVENT_PVL_USR(perf_counter.in);
+    SET_COUNT_EVENT_PVL_OS(perf_counter.in);    
+
+    printf("Before hypercall: perf_count = %#018lx\n", perf_counter.in);
+
+    ret = xc_count_perf(xch, &perf_counter, delay_ms);
     
     if( ret != 0 )
-        ERROR("Failed to record perf_count %#018lx\n", perf_count);
+        ERROR("Failed to record perf_count %#018lx\n", perf_counter.in);
     
-    printf("After hypercall: perf_count %#018lx\n", perf_count);
+    printf("After hypercall: perf_count %#018lx\n", perf_counter.in);
+
+    printf("#cpu_id\tL1Imiss\tL1Iall\tL1I_MR\tL1Dmiss\tL1Dall\tL1D_MR\tL2miss\tL2all\tL2_MR\tL3_miss\tL3_all\tL3_MR\n");
+    for( i = 0; i < RTXEN_CPU_MAXNUM; i++ )
+    {
+        printf( "cpu %d :", i );
+        printf( "%"PRIu64 "\t%"PRIu64 "\t""%.2f\t",
+                 perf_counter.out[i].l1I_miss, perf_counter.out[i].l1I_miss + perf_counter.out[i].l1I_hit, 
+                 perf_counter.out[i].l1I_miss * 1.0 / (perf_counter.out[i].l1I_miss + perf_counter.out[i].l1I_hit) );
+        printf( "%"PRIu64 "\t%"PRIu64 "\t""%.2f\t",
+                perf_counter.out[i].l1D_ldmiss + perf_counter.out[i].l1D_stmiss, perf_counter.out[i].l1D_all, 
+                (perf_counter.out[i].l1D_ldmiss + perf_counter.out[i].l1D_stmiss) * 1.0 / perf_counter.out[i].l1D_all );
+        printf( "%"PRIu64 "\t%"PRIu64 "\t""%.2f\t",
+                perf_counter.out[i].l2_miss, perf_counter.out[i].l2_all,  perf_counter.out[i].l2_miss * 1.0 / perf_counter.out[i].l2_all );
+        printf( "%"PRIu64 "\t%"PRIu64 "\t""%.2f\t",
+                perf_counter.out[i].l3_miss, perf_counter.out[i].l3_all,  perf_counter.out[i].l3_miss * 1.0 / perf_counter.out[i].l3_all );        
+        printf("\n");
+    }
     
     return 0;
 }

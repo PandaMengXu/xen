@@ -822,7 +822,7 @@ long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
 
     default:
         //dprintk(XENLOG_INFO,"call arch_memory_op");
-        printk("call arch_memory_op");
+        printk("call arch_memory_op\n");
         rc = arch_memory_op(op, arg);
         break;
     }
