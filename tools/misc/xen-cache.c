@@ -8,6 +8,7 @@
 
 #include "xg_save_restore.h"
 #include <xen/rtxen_perf.h>
+#include "rtxen_perf_counter_func.h"
 
 #define ARRAY_SIZE(a)       (sizeof (a) / sizeof ((a)[0]))
 #define CD_SHIFT            30
@@ -144,7 +145,10 @@ int count_perf_func(int argc, char *argv[])
         ERROR("Failed to record perf_count %#018lx\n", perf_counter.in);
     
     printf("After hypercall: perf_count %#018lx\n", perf_counter.in);
-
+    
+    printf("===perf_counter difference value===\n");
+    print_rtxen_perf_counter(perf_counter);
+/*
     printf("#cpu_id\tL1Imiss\tL1Iall\tL1I_MR\tL1Dmiss\tL1Dall\tL1D_MR\tL2miss\tL2all\tL2_MR\tL3_miss\tL3_all\tL3_MR\n");
     for( i = 0; i < RTXEN_CPU_MAXNUM; i++ )
     {
@@ -161,7 +165,7 @@ int count_perf_func(int argc, char *argv[])
                 perf_counter.out[i].l3_miss, perf_counter.out[i].l3_all,  perf_counter.out[i].l3_miss * 1.0 / perf_counter.out[i].l3_all );        
         printf("\n");
     }
-    
+*/    
     return 0;
 }
 

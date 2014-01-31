@@ -27,6 +27,8 @@
 #include <pthread.h>
 #include <assert.h>
 
+#include "rtxen_perf_counter_func.h"
+
 #ifndef __MINIOS__
 #include <dlfcn.h>
 #endif
@@ -533,8 +535,9 @@ int xc_count_perf(xc_interface *xch, rtxen_perf_counter_t* perf_counter, int del
     int cpu_id;
     rtxen_perf_counter_t perf_counter_start = *perf_counter;
     rtxen_perf_counter_t perf_counter_finish = *perf_counter;
-    
-    perf_counter_start.op = (SET_MSR | READ_MSR);
+   
+//    perf_counter_start.op = (SET_MSR | READ_MSR);
+    perf_counter_start.op = SET_MSR;
     perf_counter_finish.op = READ_MSR;
 
     if( do_memory_op(xch, XENMEM_count_perf, &perf_counter_start, sizeof(*perf_counter)) != 0)
@@ -544,7 +547,12 @@ int xc_count_perf(xc_interface *xch, rtxen_perf_counter_t* perf_counter, int del
     
     if( do_memory_op(xch, XENMEM_count_perf, &perf_counter_finish, sizeof(*perf_counter)) != 0)
         PERROR("Could not set performance counter");
- 
+    
+    printf("===perf_counter_start value===\n");
+    print_rtxen_perf_counter(perf_counter_start);
+    printf("===perf_counter_finish value===\n"); 
+    print_rtxen_perf_counter(perf_counter_finish);
+
     for( cpu_id = 0; cpu_id < RTXEN_CPU_MAXNUM; cpu_id++ )
     {
         perf_counter->out[cpu_id].l1I_miss = perf_counter_finish.out[cpu_id].l1I_miss - perf_counter_start.out[cpu_id].l1I_miss;    
