@@ -34,7 +34,7 @@
 #define COUNT_EVENT_PVL_USR_MASK (0x1UL << 33)
 #define SET_COUNT_EVENT_PVL_USR(counter)    ( counter |= COUNT_EVENT_PVL_USR )
 #define CLEAR_COUNT_EVENT_PVL_USR(counter)  ( counter &= (~COUNT_EVENT_PVL_USR) )
-#define IS_COUNT_EVENT_PVL_USR( counter )   ( counter &= COUNT_EVENT_PVL_USR_MASK)
+#define IS_COUNT_EVENT_PVL_USR( counter )   ( counter & COUNT_EVENT_PVL_USR_MASK)
 
 #define READ_MSR_BIT            (0x1U)
 #define SET_MSR                 SET_MSR_BIT

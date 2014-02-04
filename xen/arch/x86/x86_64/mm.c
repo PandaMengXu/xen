@@ -1052,7 +1052,7 @@ void enable_cache(void *cr0)
 
 void setread_perf_counter(void* arg_perf_counter)
 {
-    uint64_t eax = 0, ecx = 0, edx = 0;
+    uint32_t eax = 0, ecx = 0, edx = 0;
     uint64_t l1I_miss, l1I_hit;
     uint64_t l1D_all, l1D_ldmiss, l1D_stmiss; 
     uint64_t l2_miss, l2_all;
@@ -1093,13 +1093,13 @@ void setread_perf_counter(void* arg_perf_counter)
             ecx = PMC0;
             eax = 0;
             edx = 0;
-//            RTXEN_READ_MSR(ecx, eax, edx);
+            RTXEN_READ_MSR(ecx, eax, edx);
             l1I_hit = ( ((uint64_t) edx << 32) | eax );
             /*read counter of L1I cache all miss*/
             ecx = PMC1;
             eax = 0;
             edx = 0;
-//            RTXEN_READ_MSR(ecx, eax, edx);
+            RTXEN_READ_MSR(ecx, eax, edx);
             l1I_miss = ( ((uint64_t) edx << 32) | eax );
             perf_counter->out[cpu_id].l1I_miss = l1I_miss;
             perf_counter->out[cpu_id].l1I_hit = l1I_hit;
@@ -1223,33 +1223,37 @@ void setread_perf_counter(void* arg_perf_counter)
             if( IS_COUNT_EVENT_PVL_OS(perf_counter->in) )
                 SET_MSR_OS_BIT(eax);
             SET_EVENT_MASK(eax, L3_ALLREQ_EVENT, L3_ALLREQ_MASK);
+            eax |= MSR_ENFLAG;
             ecx = PERFEVTSEL2; /*use Performance Counter 2 to record the event*/
-            dprintk(XENLOG_INFO,"WRMSR: eax=%#018lx, ecx=%#018lx\n", eax, ecx);
+            dprintk(XENLOG_INFO,"Before WRMSR: eax=%#010x, ecx=%#010x\n", eax, ecx);
             RTXEN_WRITE_MSR(eax, ecx);
+            dprintk(XENLOG_INFO,"After WRMSR: eax=%#010x, ecx=%#010x\n", eax, ecx);
+            dprintk(XENLOG_INFO, "L3 SET MSR PMC2\n");
             /*set counter for L3 cache all miss*/
             eax = 0;
             if( IS_COUNT_EVENT_PVL_USR(perf_counter->in) )
                 SET_MSR_USR_BIT(eax);
             if( IS_COUNT_EVENT_PVL_OS(perf_counter->in) )
                 SET_MSR_OS_BIT(eax);
-            SET_EVENT_MASK(eax, L3_ALLMISS_EVENT, L3_ALLMISS_MASK);        
+            SET_EVENT_MASK(eax, L3_ALLMISS_EVENT, L3_ALLMISS_MASK);
+            eax |= MSR_ENFLAG;
             ecx = PERFEVTSEL3;
             RTXEN_WRITE_MSR(eax, ecx);
-            dprintk(XENLOG_INFO, "L3 SET MSR PMC2 and PMC3\n");
+            dprintk(XENLOG_INFO, "L3 SET MSR PMC3\n");
         }
         if( IS_READ_MSR(perf_counter->op) )
         {
             /*read counter of L3 cache all req*/        
             ecx = PMC2;
-            eax = 0;
-            edx = 0;
-            dprintk(XENLOG_INFO,"RDMSR: ecx=%#018lx\n", ecx);
+            eax = 1;
+            edx = 2;
+            dprintk(XENLOG_INFO,"RDMSR: ecx=%#010x\n", ecx);
             RTXEN_READ_MSR(ecx, eax, edx);
             l3_all = ( ((uint64_t) edx << 32) | eax );
             /*read counter of L3 cache all miss*/
             ecx = PMC3;
-            eax = 0;
-            edx = 0;
+            eax = 1;
+            edx = 2;
             RTXEN_READ_MSR(ecx, eax, edx);
             l3_miss = ( ((uint64_t) edx << 32) | eax );
             /*set perf_counter to return*/
@@ -1315,7 +1319,8 @@ long subarch_memory_op(int op, XEN_GUEST_HANDLE_PARAM(void) arg)
         );
         cpu_family = ( (reg_a >> 8) & 0xfU ) + ( (reg_a >> 20) & 0xffU );
         cpu_model = ( ( (reg_a >> 16) & 0xfU ) << 4 ) + ( (reg_a >> 4) & 0xf );
-        gdprintk(XENLOG_INFO, "CPU Family:%#010x, Model:%#010x\n", cpu_family, cpu_model );        
+        gdprintk(XENLOG_INFO, "CPU Family:%#010x, Model:%#010x\n", cpu_family, cpu_model );
+        gdprintk(XENLOG_INFO, "cpuid: eax:%#010x, ebx:%#010x, ecx:%#010x, edx:%#010x\n", reg_a, reg_b, reg_c, reg_d); 
 
         if( copy_from_guest(&perf_counter, arg,1) )
             return -EFAULT;

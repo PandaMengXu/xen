@@ -13,6 +13,9 @@
 #define PMC2    0xc2
 #define PMC3    0xc3
 
+/*MSR EN flag: when set start the counter!*/
+#define MSR_ENFLAG      (0x1<<22)
+
 /*Intel Software Developer Manual Page 2549*/ /*L1I L1D cache events has not been confirmed!*/
 /*L1 Instruction Cache Performance Tuning Events*/
 #define L1I_ALLHIT_EVENT    0x80
@@ -86,9 +89,9 @@
 /* 32bit insn */
 /*
 #define RTXEN_WRITE_MSR(eax, ecx)     __asm__ __volatile__(\
+                                "movl %1, %%ecx\n\t"\
                                 "movl %0, %%eax\n\t"\
                                 "xorl %%edx, %%edx\n\t"\
-                                "movl %1, %%ecx\n\t"\
                                 "wrmsr"\
                                 :\
                                 :"r" (eax), "r" (ecx)\
@@ -105,10 +108,57 @@
                                 :\
                                 )
 */
+/* 32bit insn v2  need to set enable bit*/
+/*#define RTXEN_WRITE_MSR(eax, ecx)     __asm__ __volatile__(\
+                                "wrmsr"\
+                                :"=a" (eax), "=c" (ecx)\
+                                :"a" ((uint32_t)eax), "c" ((uint32_t)ecx), "d" ((uint32_t)0)\
+                                )
 
+#define RTXEN_READ_MSR(ecx, eax, edx) __asm__ __volatile__(\
+                                "rdmsr"\
+                                :"=d" ((uint32_t)edx), "=a" ((uint32_t)eax)\
+                                :"c" ((uint32_t)ecx)\
+                                :\
+                                )
+*/
+/* 32bit insn v3*/
+static inline void RTXEN_WRITE_MSR(uint32_t eax, uint32_t ecx)
+{     
+    /*clear counter first*/
+   __asm__ __volatile__ ("movl %0, %%ecx\n\t"
+        "xorl %%edx, %%edx\n\t"
+        "xorl %%eax, %%eax\n\t"
+        "wrmsr\n\t"
+        : /* no outputs */
+        : "m" (ecx)
+        : "eax", "ecx", "edx" /* all clobbered */);
+ 
+   eax |= MSR_ENFLAG;   
+
+   __asm__("movl %0, %%ecx\n\t" /* ecx contains the number of the MSR to set */
+        "xorl %%edx, %%edx\n\t"/* edx contains the high bits to set the MSR to */
+        "movl %1, %%eax\n\t" /* eax contains the log bits to set the MSR to */
+        "wrmsr\n\t"
+        : /* no outputs */
+        : "m" (ecx), "m" (eax)
+        : "eax", "ecx", "edx" /* clobbered */);
+}
+
+static inline void  RTXEN_READ_MSR(uint32_t ecx, uint32_t eax, uint32_t edx)
+{    __asm__ __volatile__(\
+        "rdmsr"\
+        :"=d" ((uint32_t)edx), "=a" ((uint32_t)eax)\
+        :"c" ((uint32_t)ecx)\
+        :\
+        );
+}
+/*64 bit insn*/
+/*
 #define RTXEN_WRITE_MSR(eax, ecx)     __asm__ __volatile__(\
                                 "movq %0, %%rax\n\t"\
                                 "xorq %%rdx, %%rdx\n\t"\
+                                "xorq %%rcx, %%rcx\n\t"\
                                 "movq %1, %%rcx\n\t"\
                                 "wrmsr"\
                                 :\
@@ -125,5 +175,5 @@
                                 :"r" (ecx)\
                                 :\
                                 )
-
+*/
 #endif
