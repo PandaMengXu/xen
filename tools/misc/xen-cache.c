@@ -57,7 +57,6 @@ int help_func(int argc, char *argv[])
             "  disable                  disable all cache levels\n"
             "  enable                   enable cache_level L1/L2/L3\n"
             "  count-perf [miss|hit|all] [L1I|L1D|L2|L3|L2L3] [delay in ms]\n"
-            "                           count cache [miss|hit|all-access] of [L1|L2|L3] cache\n" 
             );
     
     return 0;

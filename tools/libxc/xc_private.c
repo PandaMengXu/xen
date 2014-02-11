@@ -537,6 +537,7 @@ int xc_count_perf(xc_interface *xch, rtxen_perf_counter_t* perf_counter, int del
     rtxen_perf_counter_t perf_counter_finish = *perf_counter;
    
 //    perf_counter_start.op = (SET_MSR | READ_MSR);
+    /*cannot be both read and set. TODO forbid read and set at the same time*/
     perf_counter_start.op = SET_MSR;
     perf_counter_finish.op = READ_MSR;
 
@@ -548,10 +549,10 @@ int xc_count_perf(xc_interface *xch, rtxen_perf_counter_t* perf_counter, int del
     if( do_memory_op(xch, XENMEM_count_perf, &perf_counter_finish, sizeof(*perf_counter)) != 0)
         PERROR("Could not set performance counter");
     
-    printf("===perf_counter_start value===\n");
-    print_rtxen_perf_counter(perf_counter_start);
-    printf("===perf_counter_finish value===\n"); 
-    print_rtxen_perf_counter(perf_counter_finish);
+//    printf("===perf_counter_start value===\n");
+//    print_rtxen_perf_counter(perf_counter_start);
+//    printf("===perf_counter_finish value===\n"); 
+//    print_rtxen_perf_counter(perf_counter_finish);
 
     for( cpu_id = 0; cpu_id < RTXEN_CPU_MAXNUM; cpu_id++ )
     {

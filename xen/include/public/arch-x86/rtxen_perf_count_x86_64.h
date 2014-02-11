@@ -1,6 +1,8 @@
 #ifndef __RTXEN_PERF_COUNT_H__
 #define __RTXEN_PERF_COUNT_H__
 
+#include <public/rtxen_perf.h>
+
 /*4 Performance Counters Selector for %ecx in insn wrmsr*/
 #define PERFEVTSEL0    0x186
 #define PERFEVTSEL1    0x187
@@ -10,11 +12,12 @@
 /*4 MSR Performance Counter for the above selector*/
 #define PMC0    0xc1
 #define PMC1    0xc2
-#define PMC2    0xc2
-#define PMC3    0xc3
+#define PMC2    0xc3
+#define PMC3    0xc4
 
 /*MSR EN flag: when set start the counter!*/
-#define MSR_ENFLAG      (0x1<<22)
+#define MSR_ENFLAG      (0x01U << 22)
+#define MSR_INTFLAG     (0x01U << 20)
 
 /*Intel Software Developer Manual Page 2549*/ /*L1I L1D cache events has not been confirmed!*/
 /*L1 Instruction Cache Performance Tuning Events*/
@@ -134,7 +137,8 @@ static inline void RTXEN_WRITE_MSR(uint32_t eax, uint32_t ecx)
         : "m" (ecx)
         : "eax", "ecx", "edx" /* all clobbered */);
  
-   eax |= MSR_ENFLAG;   
+   eax |= MSR_ENFLAG; /* Start the counter */
+   eax |= MSR_INTFLAG; /* Trigger interrupt when counter overflow*/
 
    __asm__("movl %0, %%ecx\n\t" /* ecx contains the number of the MSR to set */
         "xorl %%edx, %%edx\n\t"/* edx contains the high bits to set the MSR to */
@@ -145,13 +149,31 @@ static inline void RTXEN_WRITE_MSR(uint32_t eax, uint32_t ecx)
         : "eax", "ecx", "edx" /* clobbered */);
 }
 
-static inline void  RTXEN_READ_MSR(uint32_t ecx, uint32_t eax, uint32_t edx)
-{    __asm__ __volatile__(\
-        "rdmsr"\
-        :"=d" ((uint32_t)edx), "=a" ((uint32_t)eax)\
-        :"c" ((uint32_t)ecx)\
-        :\
+static inline void stop_counter(uint64_t in, uint32_t event_mask, uint32_t umask, uint32_t perfevtsel)
+{
+    uint32_t eax = 0, ecx = 0; 
+    if( IS_COUNT_EVENT_PVL_USR(in) )
+        SET_MSR_USR_BIT(eax);
+    if( IS_COUNT_EVENT_PVL_OS(in) )
+        SET_MSR_OS_BIT(eax);
+    SET_EVENT_MASK(eax, event_mask, umask);
+    eax |= MSR_INTFLAG;
+    eax &= (~MSR_ENFLAG);
+    ecx = perfevtsel;
+    RTXEN_WRITE_MSR(eax, ecx);
+
+}
+
+static inline void  rtxen_read_msr(uint32_t pmc_num, uint32_t* eax, uint32_t* edx)
+{
+    uint32_t ecx = pmc_num;    
+    __asm__ __volatile__(
+        "rdmsr"
+        :"=d" (*edx), "=a" (*eax)
+        :"c" (ecx)
+        :
         );
+    dprintk(XENLOG_INFO,"read_msr (pmc=%d), edx=%u (%#010x), eax=%u (%#010x)\n",pmc_num, *edx, *edx, *eax, *eax );
 }
 /*64 bit insn*/
 /*

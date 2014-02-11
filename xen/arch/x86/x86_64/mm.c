@@ -1074,6 +1074,8 @@ void setread_perf_counter(void* arg_perf_counter)
             if( IS_COUNT_EVENT_PVL_OS(perf_counter->in) )
                 SET_MSR_OS_BIT(eax);
             SET_EVENT_MASK(eax, L1I_ALLHIT_EVENT, L1I_ALLHIT_MASK);
+            eax |= MSR_ENFLAG;
+            eax |= MSR_INTFLAG;
             ecx = PERFEVTSEL0;
             RTXEN_WRITE_MSR(eax, ecx);        
             /*set counter for L1 Instruction cache all miss event*/
@@ -1083,23 +1085,29 @@ void setread_perf_counter(void* arg_perf_counter)
             if( IS_COUNT_EVENT_PVL_OS(perf_counter->in) )
                 SET_MSR_OS_BIT(eax);
             SET_EVENT_MASK(eax, L1I_ALLMISS_EVENT, L1I_ALLMISS_MASK);
+            eax |= MSR_ENFLAG;
+            eax |= MSR_INTFLAG;
             ecx = PERFEVTSEL1;
             RTXEN_WRITE_MSR(eax, ecx);
             dprintk(XENLOG_INFO, "L1I SET MSR PMC0 and PMC1\n");
         }
         if( IS_READ_MSR(perf_counter->op)  )
         {
+            /*stop the counter PMC0*/
+            stop_counter(perf_counter->in, L1I_ALLHIT_EVENT, L1I_ALLHIT_MASK,PERFEVTSEL0);
             /*read counter of L1I cache all hit*/
-            ecx = PMC0;
+            //ecx = PMC0;
             eax = 0;
             edx = 0;
-            RTXEN_READ_MSR(ecx, eax, edx);
+            rtxen_read_msr(PMC0, &eax, &edx);
             l1I_hit = ( ((uint64_t) edx << 32) | eax );
+            /*stop counter PMC1*/
+            stop_counter(perf_counter->in, L1I_ALLMISS_EVENT, L1I_ALLMISS_MASK,PERFEVTSEL1);
             /*read counter of L1I cache all miss*/
-            ecx = PMC1;
+            //ecx = PMC1;
             eax = 0;
             edx = 0;
-            RTXEN_READ_MSR(ecx, eax, edx);
+            rtxen_read_msr(PMC1, &eax, &edx);
             l1I_miss = ( ((uint64_t) edx << 32) | eax );
             perf_counter->out[cpu_id].l1I_miss = l1I_miss;
             perf_counter->out[cpu_id].l1I_hit = l1I_hit;
@@ -1142,23 +1150,27 @@ void setread_perf_counter(void* arg_perf_counter)
         }
         if( IS_READ_MSR(perf_counter->op) )
         {
+            /*stop counter PMC0 PMC1, PMC2*/
+            stop_counter(perf_counter->in, L1D_ALLREQ_EVENT, L1D_ALLREQ_MASK, PERFEVTSEL0);
+            stop_counter(perf_counter->in, L1D_LDMISS_EVENT, L1D_LDMISS_MASK,PERFEVTSEL1);
+            stop_counter(perf_counter->in, L1D_STMISS_EVENT, L1D_STMISS_MASK, PERFEVTSEL2);
             /*read counter of L1 Data cache all req*/
-            ecx = PMC0;
+            //ecx = PMC0;
             eax = 0;
             edx = 0;
-            RTXEN_READ_MSR(ecx, eax, edx);
+            rtxen_read_msr(PMC0, &eax, &edx);
             l1D_all = ( ((uint64_t) edx << 32) | eax );
             /*read counter of L1ID cache all load miss*/
-            ecx = PMC1;
+            //ecx = PMC1;
             eax = 0;
             edx = 0;
-            RTXEN_READ_MSR(ecx, eax, edx);
+            rtxen_read_msr(PMC1, &eax, &edx);
             l1D_ldmiss = ( ((uint64_t) edx << 32) | eax );
             /*read counter of L1D cache all store miss*/
-            ecx = PMC2;
+            //ecx = PMC2;
             eax = 0;
             edx = 0;
-            RTXEN_READ_MSR(ecx, eax, edx);
+            rtxen_read_msr(PMC2, &eax, &edx);
             l1D_stmiss = ( ((uint64_t) edx << 32) | eax );
             perf_counter->out[cpu_id].l1D_all = l1D_all;
             perf_counter->out[cpu_id].l1D_ldmiss = l1D_ldmiss;
@@ -1193,17 +1205,20 @@ void setread_perf_counter(void* arg_perf_counter)
         }
         if( IS_READ_MSR(perf_counter->op) )
         {
+            /*stop PMC0 and PMC1*/
+            stop_counter(perf_counter->in, L2_ALLREQ_EVENT, L2_ALLREQ_MASK, PERFEVTSEL0);
+            stop_counter(perf_counter->in, L2_ALLMISS_EVENT, L2_ALLMISS_MASK, PERFEVTSEL1);
             /*read counter of L2 cache all req*/        
-            ecx = PMC0;
+            //ecx = PMC0;
             eax = 0;
             edx = 0;
-            RTXEN_READ_MSR(ecx, eax, edx);
+            rtxen_read_msr(PMC0, &eax, &edx);
             l2_all = ( ((uint64_t) edx << 32) | eax );
             /*read counter of L2 cache all miss*/
-            ecx = PMC1;
+            //ecx = PMC1;
             eax = 0;
             edx = 0;
-            RTXEN_READ_MSR(ecx, eax, edx);
+            rtxen_read_msr(PMC1, &eax, &edx);
             l2_miss = ( ((uint64_t) edx << 32) | eax );
             /*set perf_counter to return*/
             perf_counter->out[cpu_id].l2_miss = l2_miss;
@@ -1243,18 +1258,20 @@ void setread_perf_counter(void* arg_perf_counter)
         }
         if( IS_READ_MSR(perf_counter->op) )
         {
+            /*stop PMC2 and PMC3*/
+            stop_counter(perf_counter->in, L3_ALLREQ_EVENT, L3_ALLREQ_MASK, PERFEVTSEL2);
+            stop_counter(perf_counter->in, L3_ALLMISS_EVENT, L3_ALLMISS_MASK, PERFEVTSEL3);
             /*read counter of L3 cache all req*/        
-            ecx = PMC2;
             eax = 1;
             edx = 2;
-            dprintk(XENLOG_INFO,"RDMSR: ecx=%#010x\n", ecx);
-            RTXEN_READ_MSR(ecx, eax, edx);
+            dprintk(XENLOG_INFO, "read L3 cache references number.\n");
+            rtxen_read_msr(PMC2, &eax, &edx);
             l3_all = ( ((uint64_t) edx << 32) | eax );
             /*read counter of L3 cache all miss*/
-            ecx = PMC3;
             eax = 1;
             edx = 2;
-            RTXEN_READ_MSR(ecx, eax, edx);
+            dprintk(XENLOG_INFO, "read L3 cache miss number.\n");
+            rtxen_read_msr(PMC3, &eax, &edx);
             l3_miss = ( ((uint64_t) edx << 32) | eax );
             /*set perf_counter to return*/
             perf_counter->out[cpu_id].l3_miss = l3_miss;
@@ -1330,8 +1347,8 @@ long subarch_memory_op(int op, XEN_GUEST_HANDLE_PARAM(void) arg)
         cpumask_clear(&target_cpu);
         cpumask_set_cpu(target_cpu_num, &target_cpu);
         dprintk(XENLOG_INFO, "cpu mask is set to 1\n");
-        on_selected_cpus(&target_cpu, &setread_perf_counter, &perf_counter, 1);
-//        on_each_cpu(&setread_perf_counter, &perf_counter, 1);
+//        on_selected_cpus(&target_cpu, &setread_perf_counter, &perf_counter, 1);
+        on_each_cpu(&setread_perf_counter, &perf_counter, 1);
 //        setread_perf_counter(&perf_counter);
         if( copy_to_guest(arg, &perf_counter, 1) )
             return -EFAULT;
