@@ -56,7 +56,7 @@ int help_func(int argc, char *argv[])
             "  show                     show cache status (30bit of CR0)\n"
             "  disable                  disable all cache levels\n"
             "  enable                   enable cache_level L1/L2/L3\n"
-            "  count-perf [miss|hit|all] [L1I|L1D|L2|L3|L2L3] [delay in ms]\n"
+            "  count-perf [miss|hit|all] [L1I|L1D|L2|L3|L2L3] [OS|USER|OS_AND_USER] [delay in ms]\n"
             );
     
     return 0;
@@ -82,6 +82,14 @@ struct{
     { "L2L3", CACHE_LEVEL_L2 | CACHE_LEVEL_L3}
 };
 
+struct{
+    const char *name;
+    int64_t level;
+} record_ring_level[] = {
+    { "OS", COUNT_EVENT_PVL_OS_BIT},
+    { "USER", COUNT_EVENT_PVL_USR_BIT},
+    { "OS_AND_USER", (COUNT_EVENT_PVL_OS_BIT | COUNT_EVENT_PVL_USR_BIT)}
+};
 
 int count_perf_func(int argc, char *argv[])
 {
@@ -89,7 +97,7 @@ int count_perf_func(int argc, char *argv[])
     int delay_ms;
     rtxen_perf_counter_t perf_counter;
 
-    if( argc != 3 )
+    if( argc != 4 )
     {
         help_func(0,NULL);
         return 1;
@@ -97,7 +105,7 @@ int count_perf_func(int argc, char *argv[])
 
     INIT_RTXEN_PERF_COUNTER(perf_counter);    
 
-    /*Parse cache event and cache level*/
+    /*Parse cache event*/
     for( i = 0; i < ARRAY_SIZE(cache_event); i++)
     {
         if( !strncmp(cache_event[i].name, argv[0], strlen(argv[0])) )
@@ -113,6 +121,7 @@ int count_perf_func(int argc, char *argv[])
 
     perf_counter.in |= cache_event[i].cache_event_num;
     
+    /*Parse cache level*/
     for( i = 0; i < ARRAY_SIZE(cache_level); i++)
     {
         if( !strncmp(cache_level[i].name, argv[1], strlen(argv[1])) )
@@ -127,14 +136,28 @@ int count_perf_func(int argc, char *argv[])
     }
     
     perf_counter.in |= cache_level[i].cache_level_num;
+
+    /* Record events in ring 0 or ring 1,2,3 or all of them*/
+    for( i = 0; i < ARRAY_SIZE(record_ring_level); i++)
+    {
+        if( !strncmp(record_ring_level[i].name, argv[2], strlen(argv[2])) )
+            break;
+    }
+
+    if( i == ARRAY_SIZE(record_ring_level) )
+    {
+        fprintf(stderr, "Unknown option '%s'\n", argv[2]);
+        help_func(0, NULL);
+        return 1;
+    }
     
-    delay_ms = atoi(argv[2]);
+    perf_counter.in |= record_ring_level[i].level;
+
+    delay_ms = atoi(argv[3]);
     if( delay_ms < 0 )
         fprintf(stderr, "delay (%d) must be larger than 0\n", delay_ms);
 
     /*Count events at priviledge level 0 or (1,2,3) or both*/
-    SET_COUNT_EVENT_PVL_USR(perf_counter.in);
-    SET_COUNT_EVENT_PVL_OS(perf_counter.in);    
 
     printf("Before hypercall: perf_count = %#018lx\n", perf_counter.in);
 

@@ -137,8 +137,8 @@ static inline void RTXEN_WRITE_MSR(uint32_t eax, uint32_t ecx)
         : "m" (ecx)
         : "eax", "ecx", "edx" /* all clobbered */);
  
-   eax |= MSR_ENFLAG; /* Start the counter */
-   eax |= MSR_INTFLAG; /* Trigger interrupt when counter overflow*/
+//   eax |= MSR_ENFLAG; /* Start the counter */
+//   eax |= MSR_INTFLAG; /* Trigger interrupt when counter overflow*/
 
    __asm__("movl %0, %%ecx\n\t" /* ecx contains the number of the MSR to set */
         "xorl %%edx, %%edx\n\t"/* edx contains the high bits to set the MSR to */

@@ -24,14 +24,16 @@
 
 /*A32 count event at ring 0 (OS bit)?*/
 #define COUNT_EVENT_PVL_OS                  (0x1UL << 32)
+#define COUNT_EVENT_PVL_OS_BIT              COUNT_EVENT_PVL_OS
 #define COUNT_EVENT_PVL_OS_MASK             (0x1UL << 32)
 #define SET_COUNT_EVENT_PVL_OS(counter)     ( counter |= COUNT_EVENT_PVL_OS )
 #define CLEAR_COUNT_EVENT_PVL_OS(counter)   ( counter &= (~COUNT_EVENT_PVL_OS) )
 #define IS_COUNT_EVENT_PVL_OS(counter)      ( counter & COUNT_EVENT_PVL_OS_MASK )  
 
 /*A33 count event at ring 1,2,3 (USR bit)*/
-#define COUNT_EVENT_PVL_USR (0x1UL << 33)
-#define COUNT_EVENT_PVL_USR_MASK (0x1UL << 33)
+#define COUNT_EVENT_PVL_USR                 (0x1UL << 33)
+#define COUNT_EVENT_PVL_USR_BIT             COUNT_EVENT_PVL_USR
+#define COUNT_EVENT_PVL_USR_MASK            (0x1UL << 33)
 #define SET_COUNT_EVENT_PVL_USR(counter)    ( counter |= COUNT_EVENT_PVL_USR )
 #define CLEAR_COUNT_EVENT_PVL_USR(counter)  ( counter &= (~COUNT_EVENT_PVL_USR) )
 #define IS_COUNT_EVENT_PVL_USR( counter )   ( counter & COUNT_EVENT_PVL_USR_MASK)

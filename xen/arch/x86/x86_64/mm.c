@@ -1126,6 +1126,8 @@ void setread_perf_counter(void* arg_perf_counter)
             if( IS_COUNT_EVENT_PVL_OS(perf_counter->in) )
                 SET_MSR_OS_BIT(eax);
             SET_EVENT_MASK(eax, L1D_ALLREQ_EVENT, L1D_ALLREQ_MASK);
+            eax |= MSR_ENFLAG;
+            eax |= MSR_INTFLAG;
             ecx = PERFEVTSEL0;
             RTXEN_WRITE_MSR(eax, ecx);        
             /*set counter for L1 Data cache Load miss event*/
@@ -1135,6 +1137,8 @@ void setread_perf_counter(void* arg_perf_counter)
             if( IS_COUNT_EVENT_PVL_OS(perf_counter->in) )
                 SET_MSR_OS_BIT(eax);
             SET_EVENT_MASK(eax, L1D_LDMISS_EVENT, L1D_LDMISS_MASK);
+            eax |= MSR_ENFLAG;
+            eax |= MSR_INTFLAG;
             ecx = PERFEVTSEL1;
             RTXEN_WRITE_MSR(eax, ecx);
             /*set counter for L1 Data cache Store miss event*/
@@ -1144,6 +1148,8 @@ void setread_perf_counter(void* arg_perf_counter)
             if( IS_COUNT_EVENT_PVL_OS(perf_counter->in) )
                 SET_MSR_OS_BIT(eax);
             SET_EVENT_MASK(eax, L1D_STMISS_EVENT, L1D_STMISS_MASK);
+            eax |= MSR_ENFLAG;
+            eax |= MSR_INTFLAG;
             ecx = PERFEVTSEL2;
             RTXEN_WRITE_MSR(eax, ecx);
             dprintk(XENLOG_INFO, "L1D SET MSR PMC0 PMC1, PMC2\n");
@@ -1190,6 +1196,8 @@ void setread_perf_counter(void* arg_perf_counter)
             if( IS_COUNT_EVENT_PVL_OS(perf_counter->in) )
                 SET_MSR_OS_BIT(eax);
             SET_EVENT_MASK(eax, L2_ALLREQ_EVENT, L2_ALLREQ_MASK);
+            eax |= MSR_ENFLAG;
+            eax |= MSR_INTFLAG;
             ecx = PERFEVTSEL0; /*use Performance Counter 0 to record the event*/
             RTXEN_WRITE_MSR(eax, ecx);
             /*set counter for L2 cache all miss*/
@@ -1199,6 +1207,8 @@ void setread_perf_counter(void* arg_perf_counter)
             if( IS_COUNT_EVENT_PVL_OS(perf_counter->in) )
                 SET_MSR_OS_BIT(eax);
             SET_EVENT_MASK(eax, L2_ALLMISS_EVENT, L2_ALLMISS_MASK);        
+            eax |= MSR_ENFLAG;
+            eax |= MSR_INTFLAG;
             ecx = PERFEVTSEL1;
             RTXEN_WRITE_MSR(eax, ecx);
             dprintk(XENLOG_INFO, "L2 SET MSR PMC0 and PMC1\n");
@@ -1239,6 +1249,7 @@ void setread_perf_counter(void* arg_perf_counter)
                 SET_MSR_OS_BIT(eax);
             SET_EVENT_MASK(eax, L3_ALLREQ_EVENT, L3_ALLREQ_MASK);
             eax |= MSR_ENFLAG;
+            eax |= MSR_INTFLAG;
             ecx = PERFEVTSEL2; /*use Performance Counter 2 to record the event*/
             dprintk(XENLOG_INFO,"Before WRMSR: eax=%#010x, ecx=%#010x\n", eax, ecx);
             RTXEN_WRITE_MSR(eax, ecx);
@@ -1252,6 +1263,7 @@ void setread_perf_counter(void* arg_perf_counter)
                 SET_MSR_OS_BIT(eax);
             SET_EVENT_MASK(eax, L3_ALLMISS_EVENT, L3_ALLMISS_MASK);
             eax |= MSR_ENFLAG;
+            eax |= MSR_INTFLAG;
             ecx = PERFEVTSEL3;
             RTXEN_WRITE_MSR(eax, ecx);
             dprintk(XENLOG_INFO, "L3 SET MSR PMC3\n");
