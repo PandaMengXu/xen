@@ -36,6 +36,8 @@
 #define L1D_STMISS_MASK     0x01
 
 /*L2 private cache for each core*/ /*confirmed*/
+/* Page 2550 for Intel 3rd generation CPU (Ivebridge) in Intel Developer manual*/
+/* Page 2560 for Intel 2nd generation CPU (SandyBridge) in Intel Developer manual*/
 #define L2_ALLREQ_EVENT     0x24
 #define L2_ALLREQ_MASK      L2_ALLCODEREQ_MASK  /*0xFF*/
 #define L2_ALLMISS_EVENT    0x24
