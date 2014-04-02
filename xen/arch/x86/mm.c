@@ -4937,6 +4937,8 @@ long arch_memory_op(int op, XEN_GUEST_HANDLE_PARAM(void) arg)
     }
 
     default:
+        //dprintk(XENLOG_INFO,"call subarch_memory_op");
+        printk("call subarch_memory_op\n");
         return subarch_memory_op(op, arg);
     }
 

@@ -12,6 +12,8 @@ xen/.dir:
 	@rm -rf xen
 	mkdir -p xen/libelf
 	ln -sf $(XEN_ROOT)/xen/include/public/COPYING xen
+	ln -sf $(XEN_ROOT)/xen/include/public/rtxen_perf.h xen
+	ln -sf $(XEN_ROOT)/xen/include/xen/mm_mask.h xen
 	ln -sf $(wildcard $(XEN_ROOT)/xen/include/public/*.h) xen
 	ln -sf $(addprefix $(XEN_ROOT)/xen/include/public/,arch-x86 hvm io xsm) xen
 	ln -sf ../xen-sys/$(XEN_OS) xen/sys

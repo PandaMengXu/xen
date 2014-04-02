@@ -1,0 +1,119 @@
+#!/bin/sh
+exec tail -n +3 $0
+# This file provides an easy way to add custom menu entries.  Simply type the
+# menu entries you want to add after this comment.  Be careful not to change
+# the 'exec tail' line above.
+submenu "RT-Xen 2.0" {
+menuentry 'Ubuntu GNU/Linux, with RT-Xen 2.0(rtglobal) and Linux 3.8.0-29-generic' --class ubuntu --class gnu-linux --class gnu --class os --class xen {
+        insmod part_msdos
+        insmod ext2
+        set root='(hd0,msdos3)'
+        search --no-floppy --fs-uuid --set=root acd81245-dcae-4f1e-a388-6dd9118bb665
+        echo    'Loading Xen 4.3.0 ...'
+        multiboot       /boot/xen-4.3.0.gz placeholder dom0_max_vcpus=8 dom0_vcpus_pin dom0_mem=4096M sched=rtglobal
+        echo    'Loading Linux 3.8.0-29-generic ...'
+        module  /boot/vmlinuz-3.8.0-29-generic placeholder root=UUID=acd81245-dcae-4f1e-a388-6dd9118bb665 ro  quiet splash
+        echo    'Loading initial ramdisk ...'
+        module  /boot/initrd.img-3.8.0-29-generic
+}
+menuentry 'Ubuntu GNU/Linux, with RT-Xen 2.0(rtpartition) and Linux 3.8.0-29-generic' --class ubuntu --class gnu-linux --class gnu --class os --class xen {
+        insmod part_msdos
+        insmod ext2
+        set root='(hd0,msdos3)'
+        search --no-floppy --fs-uuid --set=root acd81245-dcae-4f1e-a388-6dd9118bb665
+        echo    'Loading Xen 4.3.0 ...'
+        multiboot       /boot/xen-4.3.0.gz placeholder dom0_max_vcpus=8 dom0_vcpus_pin dom0_mem=4096M sched=rtpartition
+        echo    'Loading Linux 3.8.0-29-generic ...'
+        module  /boot/vmlinuz-3.8.0-29-generic placeholder root=UUID=acd81245-dcae-4f1e-a388-6dd9118bb665 ro  quiet splash
+        echo    'Loading initial ramdisk ...'
+        module  /boot/initrd.img-3.8.0-29-generic
+}
+menuentry 'Ubuntu GNU/Linux, with RT-Xen 2.0(credit) and Linux 3.8.0-29-generic' --class ubuntu --class gnu-linux --class gnu --class os --class xen {
+        insmod part_msdos
+        insmod ext2
+        set root='(hd0,msdos3)'
+        search --no-floppy --fs-uuid --set=root acd81245-dcae-4f1e-a388-6dd9118bb665
+        echo    'Loading Xen 4.3.0 ...'
+        multiboot       /boot/xen-4.3.0.gz placeholder dom0_max_vcpus=8 dom0_vcpus_pin dom0_mem=4096M sched=credit
+        echo    'Loading Linux 3.8.0-29-generic ...'
+        module  /boot/vmlinuz-3.8.0-29-generic placeholder root=UUID=acd81245-dcae-4f1e-a388-6dd9118bb665 ro  quiet splash
+        echo    'Loading initial ramdisk ...'
+        module  /boot/initrd.img-3.8.0-29-generic
+}
+menuentry 'Ubuntu GNU/Linux, with RT-Xen 2.0(credit2) and Linux 3.8.0-29-generic' --class ubuntu --class gnu-linux --class gnu --class os --class xen {
+        insmod part_msdos
+        insmod ext2
+        set root='(hd0,msdos3)'
+        search --no-floppy --fs-uuid --set=root acd81245-dcae-4f1e-a388-6dd9118bb665
+        echo    'Loading Xen 4.3.0 ...'
+        multiboot       /boot/xen-4.3.0.gz placeholder dom0_max_vcpus=8 dom0_vcpus_pin dom0_mem=4096M sched=credit2
+        echo    'Loading Linux 3.8.0-29-generic ...'
+        module  /boot/vmlinuz-3.8.0-29-generic placeholder root=UUID=acd81245-dcae-4f1e-a388-6dd9118bb665 ro  quiet splash
+        echo    'Loading initial ramdisk ...'
+        module  /boot/initrd.img-3.8.0-29-generic
+}
+}
+submenu "RT-Xen 2.0 (serial output, loglvl=all, guest_loglvl=all)" {
+menuentry 'Ubuntu GNU/Linux, with RT-Xen 2.0(rtpartition) and Linux 3.8.0-29-generic with Serial Output' --class ubuntu --class gnu-linux --class gnu --class os --class xen {
+        insmod part_msdos
+        insmod ext2
+        set root='(hd0,msdos3)'
+        search --no-floppy --fs-uuid --set=root acd81245-dcae-4f1e-a388-6dd9118bb665
+        echo    'Loading Xen 4.3.0 ...'
+        multiboot       /boot/xen-4.3.0.gz placeholder dom0_max_vcpus=8 dom0_vcpus_pin dom0_mem=4096M sched=rtpartition loglvl=all guest_loglvl=all console=tty0 com1=115200,8n1 console=com1,vga
+        echo    'Loading Linux 3.8.0-29-generic ...'
+        module  /boot/vmlinuz-3.8.0-29-generic placeholder root=UUID=acd81245-dcae-4f1e-a388-6dd9118bb665 ro  quiet splash console=tty0 console=hvc0 earlyprintk=xen
+        echo    'Loading initial ramdisk ...'
+        module  /boot/initrd.img-3.8.0-29-generic
+}
+menuentry 'Ubuntu GNU/Linux, with RT-Xen 2.0(rtglobal) and Linux 3.8.0-29-generic with Serial Output' --class ubuntu --class gnu-linux --class gnu --class os --class xen {
+        insmod part_msdos
+        insmod ext2
+        set root='(hd0,msdos3)'
+        search --no-floppy --fs-uuid --set=root acd81245-dcae-4f1e-a388-6dd9118bb665
+        echo    'Loading Xen 4.3.0 ...'
+        multiboot       /boot/xen-4.3.0.gz placeholder dom0_max_vcpus=8 dom0_vcpus_pin dom0_mem=4096M sched=rtglobal loglvl=all guest_loglvl=all console=tty0 com1=115200,8n1 console=com1,vga
+        echo    'Loading Linux 3.8.0-29-generic ...'
+        module  /boot/vmlinuz-3.8.0-29-generic placeholder root=UUID=acd81245-dcae-4f1e-a388-6dd9118bb665 ro  quiet splash console=tty0 console=hvc0 earlyprintk=xen
+        echo    'Loading initial ramdisk ...'
+        module  /boot/initrd.img-3.8.0-29-generic
+}
+menuentry 'Ubuntu GNU/Linux, with RT-Xen 2.0(credit) and Linux 3.8.0-29-generic with Serial Output' --class ubuntu --class gnu-linux --class gnu --class os --class xen {
+        insmod part_msdos
+        insmod ext2
+        set root='(hd0,msdos3)'
+        search --no-floppy --fs-uuid --set=root acd81245-dcae-4f1e-a388-6dd9118bb665
+        echo    'Loading Xen 4.3.0 ...'
+        multiboot       /boot/xen-4.3.0.gz placeholder dom0_max_vcpus=8 dom0_vcpus_pin dom0_mem=4096M sched=credit loglvl=all guest_loglvl=all console=tty0 com1=115200,8n1 console=com1,vga
+        echo    'Loading Linux 3.8.0-29-generic ...'
+        module  /boot/vmlinuz-3.8.0-29-generic placeholder root=UUID=acd81245-dcae-4f1e-a388-6dd9118bb665 ro  quiet splash console=tty0 console=hvc0 earlyprintk=xen
+        echo    'Loading initial ramdisk ...'
+        module  /boot/initrd.img-3.8.0-29-generic
+}
+menuentry 'Ubuntu GNU/Linux, with RT-Xen 2.0(credit2) and Linux 3.8.0-29-generic with Serial Output' --class ubuntu --class gnu-linux --class gnu --class os --class xen {
+        insmod part_msdos
+        insmod ext2
+        set root='(hd0,msdos3)'
+        search --no-floppy --fs-uuid --set=root acd81245-dcae-4f1e-a388-6dd9118bb665
+        echo    'Loading Xen 4.3.0 ...'
+        multiboot       /boot/xen-4.3.0.gz placeholder dom0_max_vcpus=8 dom0_vcpus_pin dom0_mem=4096M sched=credit2 loglvl=all guest_loglvl=all console=tty0 com1=115200,8n1 console=com1,vga
+        echo    'Loading Linux 3.8.0-29-generic ...'
+        module  /boot/vmlinuz-3.8.0-29-generic placeholder root=UUID=acd81245-dcae-4f1e-a388-6dd9118bb665 ro  quiet splash console=tty0 console=hvc0 earlyprintk=xen
+        echo    'Loading initial ramdisk ...'
+        module  /boot/initrd.img-3.8.0-29-generic
+}
+}
+submenu "Linux with serial output" {
+menuentry 'Ubuntu, with Linux 3.8.0-35-generic with serial output' --class ubuntu --class gnu-linux --class gnu --class os {
+        recordfail
+        savedefault
+        gfxmode $linux_gfx_mode
+        insmod gzio
+        insmod part_msdos
+        insmod ext2
+        set root='(hd0,msdos3)'
+        search --no-floppy --fs-uuid --set=root acd81245-dcae-4f1e-a388-6dd9118bb665
+        linux   /boot/vmlinuz-3.8.0-35-generic root=UUID=acd81245-dcae-4f1e-a388-6dd9118bb665 ro   quiet splash $vt_handoff console=tty0 com1=115200,8n1 console=com1,vga, console=ttyS0,115200,8n1
+        initrd  /boot/initrd.img-3.8.0-35-generic
+    }
+}

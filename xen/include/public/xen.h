@@ -879,6 +879,7 @@ struct xenctl_bitmap {
 
 #endif /* __XEN_PUBLIC_XEN_H__ */
 
+
 /*
  * Local variables:
  * mode: C

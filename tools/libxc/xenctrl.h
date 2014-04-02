@@ -47,6 +47,8 @@
 #include <xen/xsm/flask_op.h>
 #include <xen/tmem.h>
 
+#include <xen/rtxen_perf.h>
+
 #include "xentoollog.h"
 
 #if defined(__i386__) || defined(__x86_64__)
@@ -1339,6 +1341,15 @@ int xc_clear_domain_page(xc_interface *xch, uint32_t domid,
 
 int xc_mmuext_op(xc_interface *xch, struct mmuext_op *op, unsigned int nr_ops,
                  domid_t dom);
+
+/*
+ * RT-Xen disable/enable cache
+ */
+int xc_disable_cache(xc_interface *xch);
+int xc_enable_cache(xc_interface *xch);
+int xc_show_cache(xc_interface *xch);
+
+int xc_count_perf(xc_interface *xch, rtxen_perf_counter_t* perf_count, int delay);
 
 /* System wide memory properties */
 long xc_maximum_ram_page(xc_interface *xch);

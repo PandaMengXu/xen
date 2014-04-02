@@ -55,6 +55,9 @@
  *    dump, vcpu_insert, vcpu_remove, context_saved,
  */
 
+/*if defined RTGLOBAL_BOUNCE, domain with DOMID=1 will bounce among cores*/
+#define _RTGLOBAL_BOUNCE_ 1 
+
 /*
  * Default parameters
  */
@@ -629,6 +632,7 @@ burn_budgets(const struct scheduler *ops, struct rtglobal_vcpu *svc, s_time_t no
 
 /* RunQ is sorted. Pick first one within cpumask. If no one, return NULL */
 /* lock is grabbed before calling this function */
+/*This is where bounce domID=1 happens*/
 static struct rtglobal_vcpu *
 __runq_pick(const struct scheduler *ops, cpumask_t mask)
 {
@@ -650,7 +654,7 @@ __runq_pick(const struct scheduler *ops, cpumask_t mask)
             continue;
 
 #ifdef _RTGLOBAL_BOUNCE_
-        /* bounce for VMs with id 1 */
+        /* bounce for VMs with id 1 */ 
         if ( iter_svc->sdom->dom->domain_id == 1 && iter_svc->vcpu->processor == smp_processor_id() )
             continue;
 #endif

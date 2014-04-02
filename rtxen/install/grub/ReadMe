@@ -1,0 +1,6 @@
+This is the grub entry for RT-Xen.
+You can change the scheduler for hypervisor.
+You can also change the  memory size and VCPU number for hypervisor.
+
+Usually, you can just copy this file to /etc/grub.d/ and `update-grub`, but remember to change the UUID first before you copy this file to /etc/grub.d
+

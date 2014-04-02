@@ -542,17 +542,52 @@ static long memory_exchange(XEN_GUEST_HANDLE_PARAM(xen_memory_exchange_t) arg)
     return rc;
 }
 
+/*move to x86_64/mm.c*/
+/*
+void disable_cache(void *cr0)
+{
+    __asm__ __volatile__( 
+        "pushq %%rax\n\t"              
+        "movq %%cr0,%%rax\n\t"         
+        "orq $0x40000000,%%rax\n\t"    
+        "movq %%rax,%%cr0\n\t"         
+        "movq %%cr0, %0\n\t"           
+        "wbinvd\n\t"
+        "popq  %%rax"
+        :"=r" ( *((unsigned long*) cr0) )
+        :
+        :
+        );
+}
+
+void enable_cache(void *cr0)
+{
+     __asm__ __volatile__(
+        "pushq %%rax\n\t"
+        "movq %%cr0,%%rax\n\t"
+        "andq $0xffffffffbfffffff,%%rax\n\t"       
+        "movq %%rax,%%cr0\n\t"
+        "movq %%cr0, %0\n\t"
+        "popq  %%rax"
+        :"=r" ( *((unsigned long*) cr0) )
+        :
+        :
+        );
+}
+*/
+
 long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
 {
     struct domain *d;
-    long rc;
+    long rc = -EINVAL;
     unsigned int address_bits;
     unsigned long start_extent;
     struct xen_memory_reservation reservation;
     struct memop_args args;
     domid_t domid;
     int op = cmd & MEMOP_CMD_MASK;
-
+    /*unsigned long cr0 = 0;*/
+    
     switch ( op )
     {
     case XENMEM_increase_reservation:
@@ -637,7 +672,55 @@ long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
     case XENMEM_maximum_ram_page:
         rc = max_page;
         break;
+    /*move XENMEM_disable/enable/show_cache to x86_64/mm.c*/
+   /* case XENMEM_disable_cache:
+        __asm__ __volatile__( 
+              "pushq %%rax\n\t"
+              "movq %%cr0,%%rax\n\t"
+              "orq $0x40000000,%%rax\n\t"  
+              "movq %%rax,%%cr0\n\t"
+              "movq %%cr0, %0\n\t"
+              "wbinvd\n\t"
+              "popq  %%rax"
+              :"=r" (cr0)
+              :
+              :
+       );
+        smp_call_function(&disable_cache, &cr0,1);
+        printk("<1>printk: disable cache! cr0=%#018lx\n", cr0);
+        rc = 0;
+        break;
 
+    case XENMEM_enable_cache:
+         __asm__ __volatile__(
+                "pushq %%rax\n\t"
+                "movq %%cr0,%%rax\n\t"
+                "andq $0xffffffffbfffffff,%%rax\n\t"       
+                "movq %%rax,%%cr0\n\t"
+                "movq %%cr0, %0\n\t"
+                "popq  %%rax"
+                :"=r" (cr0)
+                :
+                :
+        );
+        smp_call_function(&enable_cache, &cr0 , 1);
+        printk("<1>printk: enable cache; cr0=%#018lx\n", cr0);
+        rc = 0;
+        break;
+
+    case XENMEM_show_cache:
+       __asm__ __volatile__("pushq %%rax\n\t"
+                            "movq %%cr0, %%rax\n\t"
+                            "movq %%rax, %0\n\t"
+                            "popq %%rax"
+                            :"=r" (cr0)
+                            :
+                            :
+            );
+        //gdprintk(XENLOG_WARNING, "gdprintk:XENMEM_show_cache_status! CR0 value is %#018lx\n", cr0);
+        printk("<1>printk: XENMEM_show_cache_status! CR0 value is %#018lx\n",cr0);
+        return (long) cr0;
+*/
     case XENMEM_current_reservation:
     case XENMEM_maximum_reservation:
     case XENMEM_maximum_gpfn:
@@ -738,9 +821,14 @@ long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
         break;
 
     default:
+        //dprintk(XENLOG_INFO,"call arch_memory_op");
+        printk("call arch_memory_op\n");
         rc = arch_memory_op(op, arg);
         break;
     }
+
+    //gdprintk(XENLOG_WARNING,"gdprintk: Begin of do_memory_op @memory.c\n");
+    //printk("printk: Begin of do_memory_op @memory.c\ncmd is %lu\n",cmd);
 
     return rc;
 }

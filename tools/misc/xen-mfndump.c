@@ -1,3 +1,6 @@
+/*This tool only works for 32 bit right now! needs change the type for x86_32 bit*/
+#ifdef X86_64
+
 #include <xenctrl.h>
 #include <xc_private.h>
 #include <xc_core.h>
@@ -82,9 +85,9 @@ int dump_p2m_func(int argc, char *argv[])
     }
 
     /* Meng:Print dominfo*/
-    printf(" ---Dumping xc_dominfo for domain %d ---\n", domid);
-    printf("nr_pages=%lu, nr_outstanding_pages=%lu, nr_shared_pages=%lu, nr_paged_pages=%lu\n",
-            info.nr_pages,info.nr_outstanding_pages, info.nr_shared_pages, info.nr_paged_pages);
+    //printf(" ---Dumping xc_dominfo for domain %d ---\n", domid);
+    //printf("nr_pages=%lu, nr_outstanding_pages=%lu, nr_shared_pages=%lu, nr_paged_pages=%lu\n",
+    //        info.nr_pages,info.nr_outstanding_pages, info.nr_shared_pages, info.nr_paged_pages);
 
     /* Retrieve all the info about the domain's memory */
     memset(&minfo, 0, sizeof(minfo));
@@ -518,6 +521,7 @@ int main(int argc, char *argv[])
     return !!ret;
 }
 
+#endif
 /*
  * Local variables:
  * mode: C
