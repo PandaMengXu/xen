@@ -67,6 +67,8 @@
 #define EDF							0
 #define RM							1
 
+#define _RTGLOBAL_BOUNCE_     0
+
 /*
  * Useful macros
  */
@@ -298,12 +300,13 @@ rtglobal_init(struct scheduler *ops)
 
     printk("This is the Deferrable Server version of the preemptive RTGLOBAL scheduler\n");
     printk("If you want to use it as a periodic server, please run a background busy CPU task\n");
+#ifdef _RTGLOBAL_BOUNCE_
     printk("----#########----\n");
 #ifdef _RTGLOBAL_BOUNCE_
     printk("This is the bounced version! It will force vm wtih id 1 to bounce between PCPUs\n");
 #endif
     printk("----########----\n");
-
+#endif
     printtime();
     printk("\n");
 
