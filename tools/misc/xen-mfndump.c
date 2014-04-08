@@ -1,3 +1,6 @@
+/*This tool only works for 32 bit right now! needs change the type for x86_32 bit*/
+#ifdef X86_64
+
 #include <xenctrl.h>
 #include <xc_private.h>
 #include <xc_core.h>
@@ -518,6 +521,7 @@ int main(int argc, char *argv[])
     return !!ret;
 }
 
+#endif
 /*
  * Local variables:
  * mode: C

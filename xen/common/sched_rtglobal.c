@@ -56,7 +56,10 @@
  */
 
 /*if defined RTGLOBAL_BOUNCE, domain with DOMID=1 will bounce among cores*/
-#define _RTGLOBAL_BOUNCE_ 0
+//#define _RTGLOBAL_BOUNCE_ 0
+#ifdef _RTGLOBAL_BOUNCE_
+#undef _RTGLOBAL_BOUNCE_
+#endif
 
 /*
  * Default parameters
@@ -66,6 +69,7 @@
 
 #define EDF							0
 #define RM							1
+
 
 /*
  * Useful macros
@@ -298,12 +302,11 @@ rtglobal_init(struct scheduler *ops)
 
     printk("This is the Deferrable Server version of the preemptive RTGLOBAL scheduler\n");
     printk("If you want to use it as a periodic server, please run a background busy CPU task\n");
-    printk("----#########----\n");
 #ifdef _RTGLOBAL_BOUNCE_
+    printk("----#########----\n");
     printk("This is the bounced version! It will force vm wtih id 1 to bounce between PCPUs\n");
-#endif
     printk("----########----\n");
-
+#endif
     printtime();
     printk("\n");
 
