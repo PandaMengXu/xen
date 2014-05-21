@@ -524,7 +524,8 @@ static hw_irq_controller iommu_maskable_msi_type = {
 
 static void parse_event_log_entry(struct amd_iommu *iommu, u32 entry[])
 {
-    u16 domain_id, device_id, bdf, flags;
+    u16 domain_id, device_id, flags;
+    unsigned int bdf;
     u32 code;
     u64 *addr;
     int count = 0;
@@ -883,7 +884,7 @@ static void enable_iommu(struct amd_iommu *iommu)
     register_iommu_event_log_in_mmio_space(iommu);
     register_iommu_exclusion_range(iommu);
 
-    if ( iommu_has_feature(iommu, IOMMU_EXT_FEATURE_PPRSUP_SHIFT) )
+    if ( amd_iommu_has_feature(iommu, IOMMU_EXT_FEATURE_PPRSUP_SHIFT) )
         register_iommu_ppr_log_in_mmio_space(iommu);
 
     desc = irq_to_desc(iommu->msi.irq);
@@ -897,15 +898,15 @@ static void enable_iommu(struct amd_iommu *iommu)
     set_iommu_command_buffer_control(iommu, IOMMU_CONTROL_ENABLED);
     set_iommu_event_log_control(iommu, IOMMU_CONTROL_ENABLED);
 
-    if ( iommu_has_feature(iommu, IOMMU_EXT_FEATURE_PPRSUP_SHIFT) )
+    if ( amd_iommu_has_feature(iommu, IOMMU_EXT_FEATURE_PPRSUP_SHIFT) )
         set_iommu_ppr_log_control(iommu, IOMMU_CONTROL_ENABLED);
 
-    if ( iommu_has_feature(iommu, IOMMU_EXT_FEATURE_GTSUP_SHIFT) )
+    if ( amd_iommu_has_feature(iommu, IOMMU_EXT_FEATURE_GTSUP_SHIFT) )
         set_iommu_guest_translation_control(iommu, IOMMU_CONTROL_ENABLED);
 
     set_iommu_translation_control(iommu, IOMMU_CONTROL_ENABLED);
 
-    if ( iommu_has_feature(iommu, IOMMU_EXT_FEATURE_IASUP_SHIFT) )
+    if ( amd_iommu_has_feature(iommu, IOMMU_EXT_FEATURE_IASUP_SHIFT) )
         amd_iommu_flush_all_caches(iommu);
 
     iommu->enabled = 1;
@@ -1008,7 +1009,7 @@ static int __init amd_iommu_init_one(struct amd_iommu *iommu)
     if ( allocate_event_log(iommu) == NULL )
         goto error_out;
 
-    if ( iommu_has_feature(iommu, IOMMU_EXT_FEATURE_PPRSUP_SHIFT) )
+    if ( amd_iommu_has_feature(iommu, IOMMU_EXT_FEATURE_PPRSUP_SHIFT) )
         if ( allocate_ppr_log(iommu) == NULL )
             goto error_out;
 
@@ -1103,7 +1104,7 @@ int iterate_ivrs_entries(int (*handler)(u16 seg, struct ivrs_mappings *))
 
     do {
         struct ivrs_mappings *map;
-        int bdf;
+        unsigned int bdf;
 
         if ( !radix_tree_gang_lookup(&ivrs_maps, (void **)&map, seg, 1) )
             break;
@@ -1118,7 +1119,7 @@ int iterate_ivrs_entries(int (*handler)(u16 seg, struct ivrs_mappings *))
 static int __init alloc_ivrs_mappings(u16 seg)
 {
     struct ivrs_mappings *ivrs_mappings;
-    int bdf;
+    unsigned int bdf;
 
     BUG_ON( !ivrs_bdf_entries );
 
@@ -1156,7 +1157,7 @@ static int __init alloc_ivrs_mappings(u16 seg)
 static int __init amd_iommu_setup_device_table(
     u16 seg, struct ivrs_mappings *ivrs_mappings)
 {
-    int bdf;
+    unsigned int bdf;
     void *intr_tb, *dte;
 
     BUG_ON( (ivrs_bdf_entries == 0) );
@@ -1282,10 +1283,10 @@ static void disable_iommu(struct amd_iommu *iommu)
     set_iommu_command_buffer_control(iommu, IOMMU_CONTROL_DISABLED);
     set_iommu_event_log_control(iommu, IOMMU_CONTROL_DISABLED);
 
-    if ( iommu_has_feature(iommu, IOMMU_EXT_FEATURE_PPRSUP_SHIFT) )
+    if ( amd_iommu_has_feature(iommu, IOMMU_EXT_FEATURE_PPRSUP_SHIFT) )
         set_iommu_ppr_log_control(iommu, IOMMU_CONTROL_DISABLED);
 
-    if ( iommu_has_feature(iommu, IOMMU_EXT_FEATURE_GTSUP_SHIFT) )
+    if ( amd_iommu_has_feature(iommu, IOMMU_EXT_FEATURE_GTSUP_SHIFT) )
         set_iommu_guest_translation_control(iommu, IOMMU_CONTROL_DISABLED);
 
     set_iommu_translation_control(iommu, IOMMU_CONTROL_DISABLED);
@@ -1306,7 +1307,8 @@ static void invalidate_all_domain_pages(void)
 static int _invalidate_all_devices(
     u16 seg, struct ivrs_mappings *ivrs_mappings)
 {
-    int bdf, req_id;
+    unsigned int bdf; 
+    u16 req_id;
     unsigned long flags;
     struct amd_iommu *iommu;
 
@@ -1354,7 +1356,7 @@ void amd_iommu_resume(void)
     }
 
     /* flush all cache entries after iommu re-enabled */
-    if ( !iommu_has_feature(iommu, IOMMU_EXT_FEATURE_IASUP_SHIFT) )
+    if ( !amd_iommu_has_feature(iommu, IOMMU_EXT_FEATURE_IASUP_SHIFT) )
     {
         invalidate_all_devices();
         invalidate_all_domain_pages();

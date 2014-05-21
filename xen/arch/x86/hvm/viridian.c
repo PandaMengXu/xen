@@ -17,13 +17,16 @@
 #include <public/hvm/hvm_op.h>
 
 /* Viridian MSR numbers. */
-#define VIRIDIAN_MSR_GUEST_OS_ID 0x40000000
-#define VIRIDIAN_MSR_HYPERCALL   0x40000001
-#define VIRIDIAN_MSR_VP_INDEX    0x40000002
-#define VIRIDIAN_MSR_EOI         0x40000070
-#define VIRIDIAN_MSR_ICR         0x40000071
-#define VIRIDIAN_MSR_TPR         0x40000072
-#define VIRIDIAN_MSR_APIC_ASSIST 0x40000073
+#define VIRIDIAN_MSR_GUEST_OS_ID                0x40000000
+#define VIRIDIAN_MSR_HYPERCALL                  0x40000001
+#define VIRIDIAN_MSR_VP_INDEX                   0x40000002
+#define VIRIDIAN_MSR_TIME_REF_COUNT             0x40000020
+#define VIRIDIAN_MSR_TSC_FREQUENCY              0x40000022
+#define VIRIDIAN_MSR_APIC_FREQUENCY             0x40000023
+#define VIRIDIAN_MSR_EOI                        0x40000070
+#define VIRIDIAN_MSR_ICR                        0x40000071
+#define VIRIDIAN_MSR_TPR                        0x40000072
+#define VIRIDIAN_MSR_APIC_ASSIST                0x40000073
 
 /* Viridian Hypercall Status Codes. */
 #define HV_STATUS_SUCCESS                       0x0000
@@ -33,9 +36,11 @@
 #define HvNotifyLongSpinWait    8
 
 /* Viridian CPUID 4000003, Viridian MSR availability. */
+#define CPUID3A_MSR_REF_COUNT   (1 << 1)
 #define CPUID3A_MSR_APIC_ACCESS (1 << 4)
 #define CPUID3A_MSR_HYPERCALL   (1 << 5)
 #define CPUID3A_MSR_VP_INDEX    (1 << 6)
+#define CPUID3A_MSR_FREQ        (1 << 11)
 
 /* Viridian CPUID 4000004, Implementation Recommendations. */
 #define CPUID4A_MSR_BASED_APIC  (1 << 3)
@@ -85,7 +90,8 @@ int cpuid_viridian_leaves(unsigned int leaf, unsigned int *eax,
         /* Which hypervisor MSRs are available to the guest */
         *eax = (CPUID3A_MSR_APIC_ACCESS |
                 CPUID3A_MSR_HYPERCALL   |
-                CPUID3A_MSR_VP_INDEX);
+                CPUID3A_MSR_VP_INDEX    |
+                CPUID3A_MSR_FREQ);
         break;
     case 4:
         /* Recommended hypercall usage. */
@@ -157,7 +163,7 @@ static void enable_hypercall_page(struct domain *d)
         if ( page )
             put_page(page);
         gdprintk(XENLOG_WARNING, "Bad GMFN %lx (MFN %lx)\n", gmfn,
-                 page_to_mfn(page));
+                 page ? page_to_mfn(page) : INVALID_MFN);
         return;
     }
 
@@ -202,7 +208,7 @@ static void initialize_apic_assist(struct vcpu *v)
         if ( page )
             put_page(page);
         gdprintk(XENLOG_WARNING, "Bad GMFN %lx (MFN %lx)\n", gmfn,
-                 page_to_mfn(page));
+                 page ? page_to_mfn(page) : INVALID_MFN);
         return;
     }
 
@@ -303,6 +309,16 @@ int rdmsr_viridian_regs(uint32_t idx, uint64_t *val)
     case VIRIDIAN_MSR_VP_INDEX:
         perfc_incr(mshv_rdmsr_vp_index);
         *val = v->vcpu_id;
+        break;
+
+    case VIRIDIAN_MSR_TSC_FREQUENCY:
+        perfc_incr(mshv_rdmsr_tsc_frequency);
+        *val = (uint64_t)d->arch.tsc_khz * 1000ull;
+        break;
+
+    case VIRIDIAN_MSR_APIC_FREQUENCY:
+        perfc_incr(mshv_rdmsr_apic_frequency);
+        *val = 1000000000ull / APIC_BUS_CYCLE_NS;
         break;
 
     case VIRIDIAN_MSR_ICR:

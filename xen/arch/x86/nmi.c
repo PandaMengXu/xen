@@ -118,15 +118,15 @@ int __init check_nmi_watchdog (void)
 {
     static unsigned int __initdata prev_nmi_count[NR_CPUS];
     int cpu;
-    
+    bool_t ok = 1;
+
     if ( !nmi_watchdog )
         return 0;
 
-    printk("Testing NMI watchdog --- ");
+    printk("Testing NMI watchdog on all CPUs:");
 
     for_each_online_cpu ( cpu )
         prev_nmi_count[cpu] = nmi_count(cpu);
-    local_irq_enable();
 
     /* Wait for 10 ticks.  Busy-wait on all CPUs: the LAPIC counter that
      * the NMI watchdog uses only runs while the core's not halted */
@@ -137,12 +137,13 @@ int __init check_nmi_watchdog (void)
     for_each_online_cpu ( cpu )
     {
         if ( nmi_count(cpu) - prev_nmi_count[cpu] <= 5 )
-            printk("CPU#%d stuck. ", cpu);
-        else
-            printk("CPU#%d okay. ", cpu);
+        {
+            printk(" %d", cpu);
+            ok = 0;
+        }
     }
 
-    printk("\n");
+    printk(" %s\n", ok ? "ok" : "stuck");
 
     /*
      * Now that we know it works we can reduce NMI frequency to
@@ -165,7 +166,7 @@ static void nmi_timer_fn(void *unused)
     set_timer(&this_cpu(nmi_timer), NOW() + MILLISECS(1000));
 }
 
-static void disable_lapic_nmi_watchdog(void)
+void disable_lapic_nmi_watchdog(void)
 {
     if (nmi_active <= 0)
         return;
@@ -519,7 +520,7 @@ static void do_nmi_stats(unsigned char key)
     for_each_online_cpu ( i )
         printk("%3d\t%3d\n", i, nmi_count(i));
 
-    if ( ((d = dom0) == NULL) || (d->vcpu == NULL) ||
+    if ( ((d = hardware_domain) == NULL) || (d->vcpu == NULL) ||
          ((v = d->vcpu[0]) == NULL) )
         return;
 

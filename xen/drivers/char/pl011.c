@@ -22,13 +22,13 @@
 #include <xen/serial.h>
 #include <xen/init.h>
 #include <xen/irq.h>
-#include <asm/early_printk.h>
 #include <xen/device_tree.h>
 #include <xen/errno.h>
 #include <asm/device.h>
 #include <xen/mm.h>
 #include <xen/vmap.h>
 #include <asm/pl011-uart.h>
+#include <asm/io.h>
 
 static struct pl011 {
     unsigned int baud, clock_hz, data_bits, parity, stop_bits;
@@ -50,8 +50,8 @@ static struct pl011 {
 #define PARITY_MARK  (PEN|SPS)
 #define PARITY_SPACE (PEN|EPS|SPS)
 
-#define pl011_read(uart, off)           ioreadl((uart)->regs + (off))
-#define pl011_write(uart, off,val)      iowritel((uart)->regs + (off), (val))
+#define pl011_read(uart, off)           readl((uart)->regs + (off))
+#define pl011_write(uart, off,val)      writel((val), (uart)->regs + (off))
 
 static void pl011_interrupt(int irq, void *data, struct cpu_user_regs *regs)
 {
@@ -85,9 +85,10 @@ static void __init pl011_init_preirq(struct serial_port *port)
 {
     struct pl011 *uart = port->uart;
     unsigned int divisor;
+    unsigned int cr;
 
     /* No interrupts, please. */
-    pl011_write(uart, IMSC, ALLI);
+    pl011_write(uart, IMSC, 0);
 
     /* Definitely no DMA */
     pl011_write(uart, DMACR, 0x0);
@@ -104,6 +105,8 @@ static void __init pl011_init_preirq(struct serial_port *port)
     {
         /* Baud rate already set: read it out from the divisor latch. */
         divisor = (pl011_read(uart, IBRD) << 6) | (pl011_read(uart, FBRD));
+        if (!divisor)
+            panic("pl011: No Baud rate configured\n");
         uart->baud = (uart->clock_hz << 2) / divisor;
     }
     /* This write must follow FBRD and IBRD writes. */
@@ -115,11 +118,13 @@ static void __init pl011_init_preirq(struct serial_port *port)
     pl011_write(uart, RSR, 0);
 
     /* Mask and clear the interrupts */
-    pl011_write(uart, IMSC, ALLI);
+    pl011_write(uart, IMSC, 0);
     pl011_write(uart, ICR, ALLI);
 
-    /* Enable the UART for RX and TX; no flow ctrl */
-    pl011_write(uart, CR, RXE | TXE | UARTEN);
+    /* Enable the UART for RX and TX; keep RTS and DTR */
+    cr = pl011_read(uart, CR);
+    cr &= RTS | DTR;
+    pl011_write(uart, CR, cr | RXE | TXE | UARTEN);
 }
 
 static void __init pl011_init_postirq(struct serial_port *port)
@@ -140,7 +145,7 @@ static void __init pl011_init_postirq(struct serial_port *port)
     pl011_write(uart, ICR, OEI|BEI|PEI|FEI);
 
     /* Unmask interrupts */
-    pl011_write(uart, IMSC, RTI|DSRMI|DCDMI|CTSMI|RIMI);
+    pl011_write(uart, IMSC, RTI|OEI|BEI|PEI|FEI|TXI|RXI);
 }
 
 static void pl011_suspend(struct serial_port *port)
@@ -153,7 +158,7 @@ static void pl011_resume(struct serial_port *port)
     BUG(); // XXX
 }
 
-static unsigned int pl011_tx_ready(struct serial_port *port)
+static int pl011_tx_ready(struct serial_port *port)
 {
     struct pl011 *uart = port->uart;
 
@@ -184,13 +189,6 @@ static int __init pl011_irq(struct serial_port *port)
     return ((uart->irq.irq > 0) ? uart->irq.irq : -1);
 }
 
-static const struct dt_irq __init *pl011_dt_irq(struct serial_port *port)
-{
-    struct pl011 *uart = port->uart;
-
-    return &uart->irq;
-}
-
 static const struct vuart_info *pl011_vuart(struct serial_port *port)
 {
     struct pl011 *uart = port->uart;
@@ -208,7 +206,6 @@ static struct uart_driver __read_mostly pl011_driver = {
     .putc         = pl011_putc,
     .getc         = pl011_getc,
     .irq          = pl011_irq,
-    .dt_irq_get   = pl011_dt_irq,
     .vuart_info   = pl011_vuart,
 };
 
@@ -223,13 +220,13 @@ static int __init pl011_uart_init(struct dt_device_node *dev,
 
     if ( strcmp(config, "") )
     {
-        early_printk("WARNING: UART configuration is not supported\n");
+        printk("WARNING: UART configuration is not supported\n");
     }
 
     uart = &pl011_com;
 
     uart->clock_hz  = 0x16e3600;
-    uart->baud      = 38400;
+    uart->baud      = BAUD_AUTO;
     uart->data_bits = 8;
     uart->parity    = PARITY_NONE;
     uart->stop_bits = 1;
@@ -237,24 +234,23 @@ static int __init pl011_uart_init(struct dt_device_node *dev,
     res = dt_device_get_address(dev, 0, &addr, &size);
     if ( res )
     {
-        early_printk("pl011: Unable to retrieve the base"
-                     " address of the UART\n");
+        printk("pl011: Unable to retrieve the base"
+               " address of the UART\n");
         return res;
-    }
-
-    uart->regs = ioremap_attr(addr, size, PAGE_HYPERVISOR_NOCACHE);
-    if ( !uart->regs )
-    {
-        early_printk("pl011: Unable to map the UART memory\n");
-
-        return -ENOMEM;
     }
 
     res = dt_device_get_irq(dev, 0, &uart->irq);
     if ( res )
     {
-        early_printk("pl011: Unable to retrieve the IRQ\n");
+        printk("pl011: Unable to retrieve the IRQ\n");
         return res;
+    }
+
+    uart->regs = ioremap_nocache(addr, size);
+    if ( !uart->regs )
+    {
+        printk("pl011: Unable to map the UART memory\n");
+        return -ENOMEM;
     }
 
     uart->vuart.base_addr = addr;
@@ -271,7 +267,7 @@ static int __init pl011_uart_init(struct dt_device_node *dev,
     return 0;
 }
 
-static const char const *pl011_dt_compat[] __initdata =
+static const char * const pl011_dt_compat[] __initconst =
 {
     "arm,pl011",
     NULL

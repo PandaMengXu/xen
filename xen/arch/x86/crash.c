@@ -22,6 +22,7 @@
 #include <xen/perfc.h>
 #include <xen/kexec.h>
 #include <xen/sched.h>
+#include <xen/keyhandler.h>
 #include <public/xen.h>
 #include <asm/shared.h>
 #include <asm/hvm/support.h>
@@ -30,12 +31,12 @@
 #include <xen/iommu.h>
 #include <asm/hpet.h>
 
-static atomic_t waiting_for_crash_ipi;
+static cpumask_t waiting_to_crash;
 static unsigned int crashing_cpu;
 static DEFINE_PER_CPU_READ_MOSTLY(bool_t, crash_save_done);
 
 /* This becomes the NMI handler for non-crashing CPUs, when Xen is crashing. */
-void __attribute__((noreturn)) do_nmi_crash(struct cpu_user_regs *regs)
+void do_nmi_crash(struct cpu_user_regs *regs)
 {
     int cpu = smp_processor_id();
 
@@ -65,7 +66,7 @@ void __attribute__((noreturn)) do_nmi_crash(struct cpu_user_regs *regs)
         __stop_this_cpu();
 
         this_cpu(crash_save_done) = 1;
-        atomic_dec(&waiting_for_crash_ipi);
+        cpumask_clear_cpu(cpu, &waiting_to_crash);
     }
 
     /* Poor mans self_nmi().  __stop_this_cpu() has reverted the LAPIC
@@ -112,17 +113,19 @@ void __attribute__((noreturn)) do_nmi_crash(struct cpu_user_regs *regs)
         halt();
 }
 
+void nmi_crash(void);
 static void nmi_shootdown_cpus(void)
 {
     unsigned long msecs;
     int i, cpu = smp_processor_id();
 
+    disable_lapic_nmi_watchdog();
     local_irq_disable();
 
     crashing_cpu = cpu;
     local_irq_count(crashing_cpu) = 0;
 
-    atomic_set(&waiting_for_crash_ipi, num_online_cpus() - 1);
+    cpumask_andnot(&waiting_to_crash, &cpu_online_map, cpumask_of(cpu));
 
     /* Change NMI trap handlers.  Non-crashing pcpus get nmi_crash which
      * invokes do_nmi_crash (above), which cause them to write state and
@@ -146,7 +149,8 @@ static void nmi_shootdown_cpus(void)
              * This update is safe from a security point of view, as this pcpu 
              * is never going to try to sysret back to a PV vcpu.
              */
-            _set_gate_lower(&idt_tables[i][TRAP_nmi], 14, 0, &trap_nop);
+            _set_gate_lower(&idt_tables[i][TRAP_nmi],
+                            SYS_DESC_irq_gate, 0, &trap_nop);
             set_ist(&idt_tables[i][TRAP_machine_check], IST_NONE);
         }
         else
@@ -162,10 +166,20 @@ static void nmi_shootdown_cpus(void)
     smp_send_nmi_allbutself();
 
     msecs = 1000; /* Wait at most a second for the other cpus to stop */
-    while ( (atomic_read(&waiting_for_crash_ipi) > 0) && msecs )
+    while ( !cpumask_empty(&waiting_to_crash) && msecs )
     {
         mdelay(1);
         msecs--;
+    }
+
+    /* Leave a hint of how well we did trying to shoot down the other cpus */
+    if ( cpumask_empty(&waiting_to_crash) )
+        printk("Shot down all CPUs\n");
+    else
+    {
+        cpulist_scnprintf(keyhandler_scratch, sizeof keyhandler_scratch,
+                          &waiting_to_crash);
+        printk("Failed to shoot down CPUs {%s}\n", keyhandler_scratch);
     }
 
     /* Crash shutdown any IOMMU functionality as the crashdump kernel is not
@@ -192,7 +206,7 @@ void machine_crash_shutdown(void)
     info = kexec_crash_save_info();
     info->xen_phys_start = xen_phys_start;
     info->dom0_pfn_to_mfn_frame_list_list =
-        arch_get_pfn_to_mfn_frame_list_list(dom0);
+        arch_get_pfn_to_mfn_frame_list_list(hardware_domain);
 }
 
 /*

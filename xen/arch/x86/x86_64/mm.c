@@ -25,6 +25,7 @@
 #include <xen/numa.h>
 #include <xen/nodemask.h>
 #include <xen/guest_access.h>
+#include <xen/hypercall.h>
 #include <asm/current.h>
 #include <asm/asm_defns.h>
 #include <asm/page.h>
@@ -36,6 +37,7 @@
 #include <asm/numa.h>
 #include <asm/mem_event.h>
 #include <asm/mem_sharing.h>
+#include <asm/mem_access.h>
 #include <public/memory.h>
 
 /* Parameters for PFN/MADDR compression. */
@@ -73,7 +75,7 @@ void *do_page_walk(struct vcpu *v, unsigned long addr)
     l2_pgentry_t l2e, *l2t;
     l1_pgentry_t l1e, *l1t;
 
-    if ( is_hvm_vcpu(v) )
+    if ( !is_pv_vcpu(v) || !is_canonical_address(addr) )
         return NULL;
 
     l4t = map_domain_page(mfn);
@@ -559,25 +561,20 @@ void __init paging_init(void)
      * We setup the L3s for 1:1 mapping if host support memory hotplug
      * to avoid sync the 1:1 mapping on page fault handler
      */
-    if ( mem_hotplug )
+    for ( va = DIRECTMAP_VIRT_START;
+          va < DIRECTMAP_VIRT_END && (void *)va < __va(mem_hotplug);
+          va += (1UL << L4_PAGETABLE_SHIFT) )
     {
-        unsigned long va;
-
-        for ( va = DIRECTMAP_VIRT_START;
-              va < DIRECTMAP_VIRT_END;
-              va += (1UL << L4_PAGETABLE_SHIFT) )
+        if ( !(l4e_get_flags(idle_pg_table[l4_table_offset(va)]) &
+              _PAGE_PRESENT) )
         {
-            if ( !(l4e_get_flags(idle_pg_table[l4_table_offset(va)]) &
-                  _PAGE_PRESENT) )
-            {
-                l3_pg = alloc_domheap_page(NULL, 0);
-                if ( !l3_pg )
-                    goto nomem;
-                l3_ro_mpt = page_to_virt(l3_pg);
-                clear_page(l3_ro_mpt);
-                l4e_write(&idle_pg_table[l4_table_offset(va)],
-                  l4e_from_page(l3_pg, __PAGE_HYPERVISOR));
-            }
+            l3_pg = alloc_domheap_page(NULL, 0);
+            if ( !l3_pg )
+                goto nomem;
+            l3_ro_mpt = page_to_virt(l3_pg);
+            clear_page(l3_ro_mpt);
+            l4e_write(&idle_pg_table[l4_table_offset(va)],
+                      l4e_from_page(l3_pg, __PAGE_HYPERVISOR));
         }
     }
 
@@ -745,7 +742,7 @@ void __init paging_init(void)
     return;
 
  nomem:
-    panic("Not enough memory for m2p table\n");    
+    panic("Not enough memory for m2p table");
 }
 
 void __init zap_low_mappings(void)
@@ -953,15 +950,16 @@ void __init subarch_init_memory(void)
     }
 }
 
-long subarch_memory_op(int op, XEN_GUEST_HANDLE_PARAM(void) arg)
+long subarch_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
 {
     struct xen_machphys_mfn_list xmml;
     l3_pgentry_t l3e;
     l2_pgentry_t l2e;
-    unsigned long v;
+    unsigned long v, limit;
     xen_pfn_t mfn, last_mfn;
     unsigned int i;
     long rc = 0;
+    int op = cmd & MEMOP_CMD_MASK;
 
     switch ( op )
     {
@@ -1005,6 +1003,34 @@ long subarch_memory_op(int op, XEN_GUEST_HANDLE_PARAM(void) arg)
 
         break;
 
+    case XENMEM_machphys_compat_mfn_list:
+        if ( copy_from_guest(&xmml, arg, 1) )
+            return -EFAULT;
+
+        limit = (unsigned long)(compat_machine_to_phys_mapping + max_page);
+        if ( limit > RDWR_COMPAT_MPT_VIRT_END )
+            limit = RDWR_COMPAT_MPT_VIRT_END;
+        for ( i = 0, v = RDWR_COMPAT_MPT_VIRT_START, last_mfn = 0;
+              (i != xmml.max_extents) && (v < limit);
+              i++, v += 1 << L2_PAGETABLE_SHIFT )
+        {
+            l2e = compat_idle_pg_table_l2[l2_table_offset(v)];
+            if ( l2e_get_flags(l2e) & _PAGE_PRESENT )
+                mfn = l2e_get_pfn(l2e);
+            else
+                mfn = last_mfn;
+            ASSERT(mfn);
+            if ( copy_to_guest_offset(xmml.extent_start, i, &mfn, 1) )
+                return -EFAULT;
+            last_mfn = mfn;
+        }
+
+        xmml.nr_extents = i;
+        if ( __copy_to_guest(arg, &xmml, 1) )
+            rc = -EFAULT;
+
+        break;
+
     case XENMEM_get_sharing_freed_pages:
         return mem_sharing_get_nr_saved_mfns();
 
@@ -1012,7 +1038,6 @@ long subarch_memory_op(int op, XEN_GUEST_HANDLE_PARAM(void) arg)
         return mem_sharing_get_nr_shared_mfns();
 
     case XENMEM_paging_op:
-    case XENMEM_access_op:
     {
         xen_mem_event_op_t meo;
         if ( copy_from_guest(&meo, arg, 1) )
@@ -1022,6 +1047,11 @@ long subarch_memory_op(int op, XEN_GUEST_HANDLE_PARAM(void) arg)
             return -EFAULT;
         break;
     }
+
+    case XENMEM_access_op:
+        rc = mem_access_memop(cmd, guest_handle_cast(arg, xen_mem_access_op_t));
+        break;
+
     case XENMEM_sharing_op:
     {
         xen_mem_sharing_op_t mso;
@@ -1452,15 +1482,15 @@ int memory_add(unsigned long spfn, unsigned long epfn, unsigned int pxm)
     if ( ret )
         goto destroy_m2p;
 
-    if ( !need_iommu(dom0) )
+    if ( !need_iommu(hardware_domain) )
     {
         for ( i = spfn; i < epfn; i++ )
-            if ( iommu_map_page(dom0, i, i, IOMMUF_readable|IOMMUF_writable) )
+            if ( iommu_map_page(hardware_domain, i, i, IOMMUF_readable|IOMMUF_writable) )
                 break;
         if ( i != epfn )
         {
             while (i-- > old_max)
-                iommu_unmap_page(dom0, i);
+                iommu_unmap_page(hardware_domain, i);
             goto destroy_m2p;
         }
     }

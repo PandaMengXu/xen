@@ -41,10 +41,13 @@ ALL_OBJS-y               += $(BASEDIR)/xsm/built_in.o
 ALL_OBJS-y               += $(BASEDIR)/arch/$(TARGET_ARCH)/built_in.o
 ALL_OBJS-$(x86)          += $(BASEDIR)/crypto/built_in.o
 
-CFLAGS-y                += -g -D__XEN__ -include $(BASEDIR)/include/xen/config.h
+CFLAGS += -fno-builtin -fno-common
+CFLAGS += -Werror -Wredundant-decls -Wno-pointer-arith
+CFLAGS += -pipe -g -D__XEN__ -include $(BASEDIR)/include/xen/config.h
+CFLAGS += -nostdinc
+
 CFLAGS-$(XSM_ENABLE)    += -DXSM_ENABLE
-CFLAGS-$(FLASK_ENABLE)  += -DFLASK_ENABLE -DXSM_MAGIC=0xf97cff8c
-CFLAGS-$(FLASK_ENABLE)  += -DFLASK_DEVELOP -DFLASK_BOOTPARAM -DFLASK_AVC_STATS
+CFLAGS-$(FLASK_ENABLE)  += -DFLASK_ENABLE
 CFLAGS-$(verbose)       += -DVERBOSE
 CFLAGS-$(crash_debug)   += -DCRASH_DEBUG
 CFLAGS-$(perfc)         += -DPERF_COUNTERS
@@ -53,6 +56,9 @@ CFLAGS-$(lock_profile)  += -DLOCK_PROFILE
 CFLAGS-$(HAS_ACPI)      += -DHAS_ACPI
 CFLAGS-$(HAS_GDBSX)     += -DHAS_GDBSX
 CFLAGS-$(HAS_PASSTHROUGH) += -DHAS_PASSTHROUGH
+CFLAGS-$(HAS_DEVICE_TREE) += -DHAS_DEVICE_TREE
+CFLAGS-$(HAS_PCI)       += -DHAS_PCI
+CFLAGS-$(HAS_IOPORTS)   += -DHAS_IOPORTS
 CFLAGS-$(frame_pointer) += -fno-omit-frame-pointer -DCONFIG_FRAME_POINTER
 
 ifneq ($(max_phys_cpus),)
@@ -164,7 +170,7 @@ SPECIAL_DATA_SECTIONS := rodata $(foreach n,1 2 4 8,rodata.str1.$(n)) \
 			 $(foreach r,rel rel.ro,data.$(r) data.$(r).local)
 
 $(filter %.init.o,$(obj-y) $(obj-bin-y) $(extra-y)): %.init.o: %.o Makefile
-	$(OBJDUMP) -h $< | sed -n '/[0-9]/{s,00*,0,g;p}' | while read idx name sz rest; do \
+	$(OBJDUMP) -h $< | sed -n '/[0-9]/{s,00*,0,g;p;}' | while read idx name sz rest; do \
 		case "$$name" in \
 		.text|.text.*|.data|.data.*|.bss) \
 			test $$sz != 0 || continue; \

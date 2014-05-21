@@ -1,7 +1,7 @@
 XEN_ROOT = $(CURDIR)/../..
 include $(XEN_ROOT)/tools/Rules.mk
 
-MAJOR    = 4.3
+MAJOR    = 4.4
 MINOR    = 0
 
 CTRL_SRCS-y       :=
@@ -33,6 +33,7 @@ CTRL_SRCS-y       += xc_mem_access.c
 CTRL_SRCS-y       += xc_memshr.c
 CTRL_SRCS-y       += xc_hcall_buf.c
 CTRL_SRCS-y       += xc_foreign_memory.c
+CTRL_SRCS-y       += xc_kexec.c
 CTRL_SRCS-y       += xtl_core.c
 CTRL_SRCS-y       += xtl_logger_stdio.c
 CTRL_SRCS-$(CONFIG_X86) += xc_pagetab.c
@@ -65,6 +66,7 @@ $(patsubst %.c,%.opic,$(ELF_SRCS-y)): CFLAGS += -Wno-pointer-sign
 GUEST_SRCS-y                 += xc_dom_core.c xc_dom_boot.c
 GUEST_SRCS-y                 += xc_dom_elfloader.c
 GUEST_SRCS-$(CONFIG_X86)     += xc_dom_bzimageloader.c
+GUEST_SRCS-$(CONFIG_X86)     += xc_dom_decompress_lz4.c
 GUEST_SRCS-$(CONFIG_ARM)     += xc_dom_armzimageloader.c
 GUEST_SRCS-y                 += xc_dom_binloader.c
 GUEST_SRCS-y                 += xc_dom_compat_linux.c
@@ -94,10 +96,6 @@ CFLAGS   += -I. $(CFLAGS_xeninclude)
 CFLAGS-$(CONFIG_Linux) += -D_GNU_SOURCE
 
 CFLAGS	+= $(PTHREAD_CFLAGS)
-
-# Define this to make it possible to run valgrind on code linked with these
-# libraries.
-#CFLAGS   += -DVALGRIND -O0 -ggdb3
 
 CTRL_LIB_OBJS := $(patsubst %.c,%.o,$(CTRL_SRCS-y))
 CTRL_PIC_OBJS := $(patsubst %.c,%.opic,$(CTRL_SRCS-y))

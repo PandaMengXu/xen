@@ -72,8 +72,9 @@ custom_param("mce_verbosity", mce_set_verbosity);
 /* Handle unconfigured int18 (should never happen) */
 static void unexpected_machine_check(struct cpu_user_regs *regs, long error_code)
 {
-    printk(XENLOG_ERR "CPU#%d: Unexpected int18 (Machine Check).\n",
-           smp_processor_id());
+    console_force_unlock();
+    printk("Unexpected Machine Check Exception\n");
+    fatal_trap(TRAP_machine_check, regs);
 }
 
 
@@ -523,7 +524,7 @@ void mcheck_cmn_handler(struct cpu_user_regs *regs, long error_code,
          * recovery job but to reset the system.
          */
         if (atomic_read(&found_error) == 0)
-            mc_panic("MCE: No CPU found valid MCE, need reset\n");
+            mc_panic("MCE: No CPU found valid MCE, need reset");
         if (!cpumask_empty(&mce_fatal_cpus))
         {
             char *ebufp, ebuf[96] = "MCE: Fatal error happened on CPUs ";
@@ -729,8 +730,10 @@ void mcheck_init(struct cpuinfo_x86 *c, bool_t bsp)
 {
     enum mcheck_type inited = mcheck_none;
 
-    if (mce_disabled == 1) {
-        dprintk(XENLOG_INFO, "MCE support disabled by bootparam\n");
+    if ( mce_disabled )
+    {
+        if ( bsp )
+            printk(XENLOG_INFO "MCE support disabled by bootparam\n");
         return;
     }
 
@@ -773,13 +776,15 @@ void mcheck_init(struct cpuinfo_x86 *c, bool_t bsp)
 
     intpose_init();
 
-    mctelem_init(sizeof(struct mc_info));
+    if ( bsp )
+    {
+        mctelem_init(sizeof(struct mc_info));
+        register_cpu_notifier(&cpu_nfb);
+    }
 
     /* Turn on MCE now */
     set_in_cr4(X86_CR4_MCE);
 
-    if ( bsp )
-        register_cpu_notifier(&cpu_nfb);
     set_poll_bankmask(c);
 
     return;
@@ -1642,7 +1647,7 @@ static int mce_delayed_action(mctelem_cookie_t mctc)
         dprintk(XENLOG_ERR, "MCE delayed action failed\n");
         is_mc_panic = 1;
         x86_mcinfo_dump(mctelem_dataptr(mctc));
-        panic("MCE: Software recovery failed for the UCR\n");
+        panic("MCE: Software recovery failed for the UCR");
         break;
     case MCER_RECOVERED:
         dprintk(XENLOG_INFO, "MCE: Error is successfully recovered\n");

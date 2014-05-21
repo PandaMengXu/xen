@@ -129,11 +129,34 @@
 #define GICH_LR_CPUID_SHIFT     9
 #define GICH_VTR_NRLRGS         0x3f
 
-/* XXX: write this into the DT */
-#define VGIC_IRQ_EVTCHN_CALLBACK 31
+/*
+ * The minimum GICC_BPR is required to be in the range 0-3. We set
+ * GICC_BPR to 0 but we must expect that it might be 3. This means we
+ * can rely on premption between the following ranges:
+ * 0xf0..0xff
+ * 0xe0..0xdf
+ * 0xc0..0xcf
+ * 0xb0..0xbf
+ * 0xa0..0xaf
+ * 0x90..0x9f
+ * 0x80..0x8f
+ *
+ * Priorities within a range will not preempt each other.
+ *
+ * A GIC must support a mimimum of 16 priority levels.
+ */
+#define GIC_PRI_LOWEST     0xf0
+#define GIC_PRI_IRQ        0xa0
+#define GIC_PRI_IPI        0x90 /* IPIs must preempt normal interrupts */
+#define GIC_PRI_HIGHEST    0x80 /* Higher priorities belong to Secure-World */
+
 
 #ifndef __ASSEMBLY__
 #include <xen/device_tree.h>
+#include <xen/irq.h>
+
+#define DT_MATCH_GIC    DT_MATCH_COMPATIBLE("arm,cortex-a15-gic"), \
+                        DT_MATCH_COMPATIBLE("arm,cortex-a7-gic")
 
 extern int domain_vgic_init(struct domain *d);
 extern void domain_vgic_free(struct domain *d);
@@ -144,11 +167,13 @@ extern void vgic_vcpu_inject_irq(struct vcpu *v, unsigned int irq,int virtual);
 extern void vgic_clear_pending_irqs(struct vcpu *v);
 extern struct pending_irq *irq_to_pending(struct vcpu *v, unsigned int irq);
 
-/* Program the GIC to route an interrupt with a dt_irq */
-extern void gic_route_dt_irq(const struct dt_irq *irq, unsigned int cpu_mask,
-                             unsigned int priority);
-extern void gic_route_ppis(void);
-extern void gic_route_spis(void);
+/* Program the GIC to route an interrupt */
+extern void gic_route_irq_to_xen(struct irq_desc *desc, bool_t level,
+                                 const cpumask_t *cpu_mask,
+                                 unsigned int priority);
+extern void gic_route_irq_to_guest(struct domain *, struct irq_desc *desc,
+                                   bool_t level, const cpumask_t *cpu_mask,
+                                   unsigned int priority);
 
 extern void gic_inject(void);
 extern void gic_clear_pending_irqs(struct vcpu *v);
@@ -157,9 +182,7 @@ extern int gic_events_need_delivery(void);
 extern void __cpuinit init_maintenance_interrupt(void);
 extern void gic_set_guest_irq(struct vcpu *v, unsigned int irq,
         unsigned int state, unsigned int priority);
-extern int gic_route_irq_to_guest(struct domain *d,
-                                  const struct dt_irq *irq,
-                                  const char * devname);
+extern void gic_remove_from_queues(struct vcpu *v, unsigned int virtual_irq);
 
 /* Accept an interrupt from the GIC and dispatch its handler */
 extern void gic_interrupt(struct cpu_user_regs *regs, int is_fiq);

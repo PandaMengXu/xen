@@ -8,7 +8,7 @@
 #include <xen/string.h>
 #include <asm/bug.h>
 
-void __bug(char *file, int line) __attribute__((noreturn));
+void noreturn __bug(char *file, int line);
 void __warn(char *file, int line);
 
 #define BUG_ON(p)  do { if (unlikely(p)) BUG();  } while (0)
@@ -63,6 +63,8 @@ do {                                                            \
 #define MASK_EXTR(v, m) (((v) & (m)) / ((m) & -(m)))
 #define MASK_INSR(v, m) (((v) * ((m) & -(m))) & (m))
 
+#define ROUNDUP(x, a) (((x) + (a) - 1) & ~((a) - 1))
+
 #define reserve_bootmem(_p,_l) ((void)0)
 
 struct domain;
@@ -83,7 +85,9 @@ extern void debugtrace_printk(const char *fmt, ...);
 #define _p(_x) ((void *)(unsigned long)(_x))
 extern void printk(const char *format, ...)
     __attribute__ ((format (printf, 1, 2)));
-extern void panic(const char *format, ...)
+extern void guest_printk(const struct domain *d, const char *format, ...)
+    __attribute__ ((format (printf, 2, 3)));
+extern void noreturn panic(const char *format, ...)
     __attribute__ ((format (printf, 1, 2)));
 extern long vm_assist(struct domain *, unsigned int, unsigned int);
 extern int __printk_ratelimit(int ratelimit_ms, int ratelimit_burst);
@@ -100,6 +104,10 @@ extern int scnprintf(char * buf, size_t size, const char * fmt, ...)
     __attribute__ ((format (printf, 3, 4)));
 extern int vscnprintf(char *buf, size_t size, const char *fmt, va_list args)
     __attribute__ ((format (printf, 3, 0)));
+extern int asprintf(char ** bufp, const char * fmt, ...)
+    __attribute__ ((format (printf, 2, 3)));
+extern int vasprintf(char ** bufp, const char * fmt, va_list args)
+    __attribute__ ((format (printf, 2, 0)));
 
 long simple_strtol(
     const char *cp,const char **endp, unsigned int base);

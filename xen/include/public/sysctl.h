@@ -34,7 +34,7 @@
 #include "xen.h"
 #include "domctl.h"
 
-#define XEN_SYSCTL_INTERFACE_VERSION 0x0000000A
+#define XEN_SYSCTL_INTERFACE_VERSION 0x0000000B
 
 /*
  * Read console content from Xen buffer ring.
@@ -226,13 +226,17 @@ struct pm_cx_stat {
     uint64_aligned_t idle_time;                 /* idle time from boot */
     XEN_GUEST_HANDLE_64(uint64) triggers;    /* Cx trigger counts */
     XEN_GUEST_HANDLE_64(uint64) residencies; /* Cx residencies */
-    uint64_aligned_t pc2;
-    uint64_aligned_t pc3;
-    uint64_aligned_t pc6;
-    uint64_aligned_t pc7;
-    uint64_aligned_t cc3;
-    uint64_aligned_t cc6;
-    uint64_aligned_t cc7;
+    uint32_t nr_pc;                          /* entry nr in pc[] */
+    uint32_t nr_cc;                          /* entry nr in cc[] */
+    /*
+     * These two arrays may (and generally will) have unused slots; slots not
+     * having a corresponding hardware register will not be written by the
+     * hypervisor. It is therefore up to the caller to put a suitable sentinel
+     * into all slots before invoking the function.
+     * Indexing is 1-biased (PC1/CC1 being at index 0).
+     */
+    XEN_GUEST_HANDLE_64(uint64) pc;
+    XEN_GUEST_HANDLE_64(uint64) cc;
 };
 
 struct xen_sysctl_get_pmstat {

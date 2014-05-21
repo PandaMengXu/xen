@@ -36,14 +36,36 @@
 #include <public/hvm/save.h>
 
 struct hvm_ioreq_page {
-    spinlock_t lock;
     struct page_info *page;
     void *va;
 };
 
-struct hvm_domain {
+struct hvm_ioreq_vcpu {
+    struct list_head list_entry;
+    struct vcpu      *vcpu;
+    evtchn_port_t    ioreq_evtchn;
+};
+
+struct hvm_ioreq_server {
+    struct domain          *domain;
+
+    /* Lock to serialize toolstack modifications */
+    spinlock_t             lock;
+
+    /* Domain id of emulating domain */
+    domid_t                domid;
     struct hvm_ioreq_page  ioreq;
-    struct hvm_ioreq_page  buf_ioreq;
+    struct list_head       ioreq_vcpu_list;
+    struct hvm_ioreq_page  bufioreq;
+
+    /* Lock to serialize access to buffered ioreq ring */
+    spinlock_t             bufioreq_lock;
+    evtchn_port_t          bufioreq_evtchn;
+};
+
+struct hvm_domain {
+    spinlock_t              ioreq_server_lock;
+    struct hvm_ioreq_server *ioreq_server;
 
     struct pl_time         pl_time;
 
@@ -61,12 +83,6 @@ struct hvm_domain {
 
     /* emulated irq to pirq */
     struct radix_tree_root emuirq_pirq;
-
-    /* hvm_print_line() logging. */
-#define HVM_PBUF_SIZE 80
-    char                  *pbuf;
-    int                    pbuf_idx;
-    spinlock_t             pbuf_lock;
 
     uint64_t              *params;
 
@@ -96,6 +112,12 @@ struct hvm_domain {
     bool_t                 qemu_mapcache_invalidate;
     bool_t                 is_s3_suspended;
 
+    /*
+     * TSC value that VCPUs use to calculate their tsc_offset value.
+     * Used during initialization and save/restore.
+     */
+    uint64_t sync_tsc;
+
     union {
         struct vmx_domain vmx;
         struct svm_domain svm;
@@ -106,3 +128,12 @@ struct hvm_domain {
 
 #endif /* __ASM_X86_HVM_DOMAIN_H__ */
 
+/*
+ * Local variables:
+ * mode: C
+ * c-file-style: "BSD"
+ * c-basic-offset: 4
+ * tab-width: 4
+ * indent-tabs-mode: nil
+ * End:
+ */

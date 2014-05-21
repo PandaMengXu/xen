@@ -118,11 +118,14 @@ struct arch_vmx_struct {
     unsigned int         host_msr_count;
     struct vmx_msr_entry *host_msr_area;
 
-    uint32_t             eoi_exitmap_changed;
-    uint64_t             eoi_exit_bitmap[4];
+    unsigned long        eoi_exitmap_changed;
+    DECLARE_BITMAP(eoi_exit_bitmap, NR_VECTORS);
     struct pi_desc       pi_desc;
 
     unsigned long        host_cr0;
+
+    /* Do we need to tolerate a spurious EPT_MISCONFIG VM exit? */
+    bool_t               ept_spurious_misconfig;
 
     /* Is the guest in real mode? */
     uint8_t              vmx_realmode;
@@ -144,6 +147,7 @@ struct arch_vmx_struct {
 int vmx_create_vmcs(struct vcpu *v);
 void vmx_destroy_vmcs(struct vcpu *v);
 void vmx_vmcs_enter(struct vcpu *v);
+bool_t __must_check vmx_vmcs_try_enter(struct vcpu *v);
 void vmx_vmcs_exit(struct vcpu *v);
 
 #define CPU_BASED_VIRTUAL_INTR_PENDING        0x00000004
@@ -185,6 +189,7 @@ extern u32 vmx_pin_based_exec_control;
 #define VM_EXIT_SAVE_GUEST_EFER         0x00100000
 #define VM_EXIT_LOAD_HOST_EFER          0x00200000
 #define VM_EXIT_SAVE_PREEMPT_TIMER      0x00400000
+#define VM_EXIT_CLEAR_BNDCFGS           0x00800000
 extern u32 vmx_vmexit_control;
 
 #define VM_ENTRY_IA32E_MODE             0x00000200
@@ -193,6 +198,7 @@ extern u32 vmx_vmexit_control;
 #define VM_ENTRY_LOAD_PERF_GLOBAL_CTRL  0x00002000
 #define VM_ENTRY_LOAD_GUEST_PAT         0x00004000
 #define VM_ENTRY_LOAD_GUEST_EFER        0x00008000
+#define VM_ENTRY_LOAD_BNDCFGS           0x00010000
 extern u32 vmx_vmentry_control;
 
 #define SECONDARY_EXEC_VIRTUALIZE_APIC_ACCESSES 0x00000001
@@ -209,8 +215,6 @@ extern u32 vmx_vmentry_control;
 #define SECONDARY_EXEC_ENABLE_INVPCID           0x00001000
 #define SECONDARY_EXEC_ENABLE_VMCS_SHADOWING    0x00004000
 extern u32 vmx_secondary_exec_control;
-
-extern bool_t cpu_has_vmx_ins_outs_instr_info;
 
 #define VMX_EPT_EXEC_ONLY_SUPPORTED             0x00000001
 #define VMX_EPT_WALK_LENGTH_4_SUPPORTED         0x00000040
@@ -278,11 +282,21 @@ extern bool_t cpu_has_vmx_ins_outs_instr_info;
 #define VMX_INTR_SHADOW_SMI             0x00000004
 #define VMX_INTR_SHADOW_NMI             0x00000008
 
+#define VMX_BASIC_REVISION_MASK         0x7fffffff
+#define VMX_BASIC_VMCS_SIZE_MASK        (0x1fffULL << 32)
+#define VMX_BASIC_32BIT_ADDRESSES       (1ULL << 48)
+#define VMX_BASIC_DUAL_MONITOR          (1ULL << 49)
+#define VMX_BASIC_MEMORY_TYPE_MASK      (0xfULL << 50)
+#define VMX_BASIC_INS_OUT_INFO          (1ULL << 54)
 /* 
  * bit 55 of IA32_VMX_BASIC MSR, indicating whether any VMX controls that
  * default to 1 may be cleared to 0.
  */
 #define VMX_BASIC_DEFAULT1_ZERO		(1ULL << 55)
+
+extern u64 vmx_basic_msr;
+#define cpu_has_vmx_ins_outs_instr_info \
+    (!!(vmx_basic_msr & VMX_BASIC_INS_OUT_INFO))
 
 /* Guest interrupt status */
 #define VMX_GUEST_INTR_STATUS_SUBFIELD_BITMASK  0x0FF
@@ -331,13 +345,7 @@ enum vmcs_field {
     EPT_POINTER                     = 0x0000201a,
     EPT_POINTER_HIGH                = 0x0000201b,
     EOI_EXIT_BITMAP0                = 0x0000201c,
-    EOI_EXIT_BITMAP0_HIGH           = 0x0000201d,
-    EOI_EXIT_BITMAP1                = 0x0000201e,
-    EOI_EXIT_BITMAP1_HIGH           = 0x0000201f,
-    EOI_EXIT_BITMAP2                = 0x00002020,
-    EOI_EXIT_BITMAP2_HIGH           = 0x00002021,
-    EOI_EXIT_BITMAP3                = 0x00002022,
-    EOI_EXIT_BITMAP3_HIGH           = 0x00002023,
+#define EOI_EXIT_BITMAP(n) (EOI_EXIT_BITMAP0 + (n) * 2) /* n = 0...3 */
     VMREAD_BITMAP                   = 0x00002026,
     VMREAD_BITMAP_HIGH              = 0x00002027,
     VMWRITE_BITMAP                  = 0x00002028,
@@ -362,6 +370,8 @@ enum vmcs_field {
     GUEST_PDPTR2_HIGH               = 0x0000280f,
     GUEST_PDPTR3                    = 0x00002810,
     GUEST_PDPTR3_HIGH               = 0x00002811,
+    GUEST_BNDCFGS                   = 0x00002812,
+    GUEST_BNDCFGS_HIGH              = 0x00002813,
     HOST_PAT                        = 0x00002c00,
     HOST_PAT_HIGH                   = 0x00002c01,
     HOST_EFER                       = 0x00002c02,

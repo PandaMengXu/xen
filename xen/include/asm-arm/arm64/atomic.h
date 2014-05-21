@@ -33,13 +33,12 @@ static inline void atomic_add(int i, atomic_t *v)
 	int result;
 
 	asm volatile("// atomic_add\n"
-"1:	ldxr	%w0, [%3]\n"
-"	add	%w0, %w0, %w4\n"
-"	stxr	%w1, %w0, [%3]\n"
+"1:	ldxr	%w0, %2\n"
+"	add	%w0, %w0, %w3\n"
+"	stxr	%w1, %w0, %2\n"
 "	cbnz	%w1, 1b"
-	: "=&r" (result), "=&r" (tmp), "+o" (v->counter)
-	: "r" (&v->counter), "Ir" (i)
-	: "cc");
+	: "=&r" (result), "=&r" (tmp), "+Q" (v->counter)
+	: "Ir" (i));
 }
 
 static inline int atomic_add_return(int i, atomic_t *v)
@@ -48,14 +47,15 @@ static inline int atomic_add_return(int i, atomic_t *v)
 	int result;
 
 	asm volatile("// atomic_add_return\n"
-"1:	ldaxr	%w0, [%3]\n"
-"	add	%w0, %w0, %w4\n"
-"	stlxr	%w1, %w0, [%3]\n"
+"1:	ldxr	%w0, %2\n"
+"	add	%w0, %w0, %w3\n"
+"	stlxr	%w1, %w0, %2\n"
 "	cbnz	%w1, 1b"
-	: "=&r" (result), "=&r" (tmp), "+o" (v->counter)
-	: "r" (&v->counter), "Ir" (i)
-	: "cc");
+	: "=&r" (result), "=&r" (tmp), "+Q" (v->counter)
+	: "Ir" (i)
+	: "memory");
 
+	smp_mb();
 	return result;
 }
 
@@ -65,13 +65,12 @@ static inline void atomic_sub(int i, atomic_t *v)
 	int result;
 
 	asm volatile("// atomic_sub\n"
-"1:	ldxr	%w0, [%3]\n"
-"	sub	%w0, %w0, %w4\n"
-"	stxr	%w1, %w0, [%3]\n"
+"1:	ldxr	%w0, %2\n"
+"	sub	%w0, %w0, %w3\n"
+"	stxr	%w1, %w0, %2\n"
 "	cbnz	%w1, 1b"
-	: "=&r" (result), "=&r" (tmp), "+o" (v->counter)
-	: "r" (&v->counter), "Ir" (i)
-	: "cc");
+	: "=&r" (result), "=&r" (tmp), "+Q" (v->counter)
+	: "Ir" (i));
 }
 
 static inline int atomic_sub_return(int i, atomic_t *v)
@@ -80,14 +79,15 @@ static inline int atomic_sub_return(int i, atomic_t *v)
 	int result;
 
 	asm volatile("// atomic_sub_return\n"
-"1:	ldaxr	%w0, [%3]\n"
-"	sub	%w0, %w0, %w4\n"
-"	stlxr	%w1, %w0, [%3]\n"
+"1:	ldxr	%w0, %2\n"
+"	sub	%w0, %w0, %w3\n"
+"	stlxr	%w1, %w0, %2\n"
 "	cbnz	%w1, 1b"
-	: "=&r" (result), "=&r" (tmp), "+o" (v->counter)
-	: "r" (&v->counter), "Ir" (i)
-	: "cc");
+	: "=&r" (result), "=&r" (tmp), "+Q" (v->counter)
+	: "Ir" (i)
+	: "memory");
 
+	smp_mb();
 	return result;
 }
 
@@ -96,32 +96,21 @@ static inline int atomic_cmpxchg(atomic_t *ptr, int old, int new)
 	unsigned long tmp;
 	int oldval;
 
+	smp_mb();
+
 	asm volatile("// atomic_cmpxchg\n"
-"1:	ldaxr	%w1, [%3]\n"
-"	cmp	%w1, %w4\n"
+"1:	ldxr	%w1, %2\n"
+"	cmp	%w1, %w3\n"
 "	b.ne	2f\n"
-"	stlxr	%w0, %w5, [%3]\n"
+"	stxr	%w0, %w4, %2\n"
 "	cbnz	%w0, 1b\n"
 "2:"
-	: "=&r" (tmp), "=&r" (oldval), "+o" (ptr->counter)
-	: "r" (&ptr->counter), "Ir" (old), "r" (new)
+	: "=&r" (tmp), "=&r" (oldval), "+Q" (ptr->counter)
+	: "Ir" (old), "r" (new)
 	: "cc");
 
+	smp_mb();
 	return oldval;
-}
-
-static inline void atomic_clear_mask(unsigned long mask, unsigned long *addr)
-{
-	unsigned long tmp, tmp2;
-
-	asm volatile("// atomic_clear_mask\n"
-"1:	ldxr	%0, [%3]\n"
-"	bic	%0, %0, %4\n"
-"	stxr	%w1, %0, [%3]\n"
-"	cbnz	%w1, 1b"
-	: "=&r" (tmp), "=&r" (tmp2), "+o" (*addr)
-	: "r" (addr), "Ir" (mask)
-	: "cc");
 }
 
 #define atomic_xchg(v, new) (xchg(&((v)->counter), new))
@@ -157,7 +146,7 @@ static inline int __atomic_add_unless(atomic_t *v, int a, int u)
  * Local variables:
  * mode: C
  * c-file-style: "BSD"
- * c-basic-offset: 4
- * indent-tabs-mode: nil
+ * c-basic-offset: 8
+ * indent-tabs-mode: t
  * End:
  */

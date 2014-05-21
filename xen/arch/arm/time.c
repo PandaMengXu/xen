@@ -50,11 +50,11 @@ unsigned long __read_mostly cpu_khz;  /* CPU clock frequency in kHz. */
 
 static struct dt_irq timer_irq[MAX_TIMER_PPI];
 
-const struct dt_irq *timer_dt_irq(enum timer_ppi ppi)
+unsigned int timer_get_irq(enum timer_ppi ppi)
 {
     ASSERT(ppi >= TIMER_PHYS_SECURE_PPI && ppi < MAX_TIMER_PPI);
 
-    return &timer_irq[ppi];
+    return timer_irq[ppi].irq;
 }
 
 /*static inline*/ s_time_t ticks_to_ns(uint64_t ticks)
@@ -101,15 +101,19 @@ static uint32_t calibrate_timer(void)
 /* Set up the timer on the boot CPU */
 int __init init_xen_time(void)
 {
+    static const struct dt_device_match timer_ids[] __initconst =
+    {
+        DT_MATCH_TIMER,
+        { /* sentinel */ },
+    };
     struct dt_device_node *dev;
     int res;
     unsigned int i;
+    u32 rate;
 
-    dev = dt_find_compatible_node(NULL, NULL, "arm,armv7-timer");
+    dev = dt_find_matching_node(NULL, timer_ids);
     if ( !dev )
-        dev = dt_find_compatible_node(NULL, NULL, "arm,armv8-timer");
-    if ( !dev )
-        panic("Unable to find a compatible timer in the device tree\n");
+        panic("Unable to find a compatible timer in the device tree");
 
     dt_device_set_used_by(dev, DOMID_XEN);
 
@@ -118,7 +122,7 @@ int __init init_xen_time(void)
     {
         res = dt_device_get_irq(dev, i, &timer_irq[i]);
         if ( res )
-            panic("Timer: Unable to retrieve IRQ %u from the device tree\n", i);
+            panic("Timer: Unable to retrieve IRQ %u from the device tree", i);
     }
 
     printk("Generic Timer IRQ: phys=%u hyp=%u virt=%u\n",
@@ -128,13 +132,17 @@ int __init init_xen_time(void)
 
     res = platform_init_time();
     if ( res )
-        return res;
+        panic("Timer: Cannot initialize platform timer");
 
     /* Check that this CPU supports the Generic Timer interface */
     if ( !cpu_has_gentimer )
-        panic("CPU does not support the Generic Timer v1 interface.\n");
+        panic("CPU does not support the Generic Timer v1 interface");
 
-    cpu_khz = READ_SYSREG32(CNTFRQ_EL0) / 1000;
+    res = dt_property_read_u32(dev, "clock-frequency", &rate);
+    if ( res )
+        cpu_khz = rate / 1000;
+    else
+        cpu_khz = READ_SYSREG32(CNTFRQ_EL0) / 1000;
 
     boot_count = READ_SYSREG64(CNTPCT_EL0);
     printk("Using generic timer at %lu KHz\n", cpu_khz);
@@ -210,23 +218,11 @@ static void vtimer_interrupt(int irq, void *dev_id, struct cpu_user_regs *regs)
     vgic_vcpu_inject_irq(current, current->arch.virt_timer.irq, 1);
 }
 
-/* Route timer's IRQ on this CPU */
-void __cpuinit route_timer_interrupt(void)
-{
-    gic_route_dt_irq(&timer_irq[TIMER_PHYS_NONSECURE_PPI],
-                     1u << smp_processor_id(), 0xa0);
-    gic_route_dt_irq(&timer_irq[TIMER_HYP_PPI],
-                     1u << smp_processor_id(), 0xa0);
-    gic_route_dt_irq(&timer_irq[TIMER_VIRT_PPI],
-                     1u << smp_processor_id(), 0xa0);
-}
-
 /* Set up the timer interrupt on this CPU */
 void __cpuinit init_timer_interrupt(void)
 {
     /* Sensible defaults */
     WRITE_SYSREG64(0, CNTVOFF_EL2);     /* No VM-specific offset */
-    WRITE_SYSREG32(0, CNTKCTL_EL1);     /* No user-mode access */
 #if USE_HYP_TIMER
     /* Do not let the VMs program the physical timer, only read the physical counter */
     WRITE_SYSREG32(CNTHCTL_PA, CNTHCTL_EL2);
@@ -252,7 +248,7 @@ void udelay(unsigned long usecs)
     s_time_t deadline = get_s_time() + 1000 * (s_time_t) usecs;
     while ( get_s_time() - deadline < 0 )
         ;
-    dsb();
+    dsb(sy);
     isb();
 }
 
@@ -274,7 +270,7 @@ void domain_set_time_offset(struct domain *d, int32_t time_offset_seconds)
     /* XXX update guest visible wallclock time */
 }
 
-struct tm wallclock_time(void)
+struct tm wallclock_time(uint64_t *ns)
 {
     return (struct tm) { 0 };
 }

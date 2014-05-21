@@ -125,7 +125,7 @@ struct page_info
          * PGT_partial gets set, and it must be dropped when the flag gets
          * cleared. This is so that a get() leaving a page in partially
          * validated state (where the caller would drop the reference acquired
-         * due to the getting of the type [apparently] failing [-EAGAIN])
+         * due to the getting of the type [apparently] failing [-ERESTART])
          * would not accidentally result in a page left with zero general
          * reference count, but non-zero type reference count (possible when
          * the partial get() is followed immediately by domain destruction).
@@ -399,7 +399,7 @@ static inline int get_page_and_type(struct page_info *page,
 int check_descriptor(const struct domain *, struct desc_struct *d);
 
 extern bool_t opt_allow_superpage;
-extern bool_t mem_hotplug;
+extern paddr_t mem_hotplug;
 
 /******************************************************************************
  * With shadow pagetables, the different kinds of address start 
@@ -555,15 +555,15 @@ int new_guest_cr3(unsigned long pfn);
 void make_cr3(struct vcpu *v, unsigned long mfn);
 void update_cr3(struct vcpu *v);
 int vcpu_destroy_pagetables(struct vcpu *);
-void propagate_page_fault(unsigned long addr, u16 error_code);
+struct trap_bounce *propagate_page_fault(unsigned long addr, u16 error_code);
 void *do_page_walk(struct vcpu *v, unsigned long addr);
 
 int __sync_local_execstate(void);
 
 /* Arch-specific portion of memory_op hypercall. */
-long arch_memory_op(int op, XEN_GUEST_HANDLE_PARAM(void) arg);
-long subarch_memory_op(int op, XEN_GUEST_HANDLE_PARAM(void) arg);
-int compat_arch_memory_op(int op, XEN_GUEST_HANDLE_PARAM(void));
+long arch_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg);
+long subarch_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg);
+int compat_arch_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void));
 int compat_subarch_memory_op(int op, XEN_GUEST_HANDLE_PARAM(void));
 
 int steal_page(

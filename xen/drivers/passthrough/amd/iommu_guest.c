@@ -60,12 +60,12 @@ static uint16_t guest_bdf(struct domain *d, uint16_t machine_bdf)
 
 static inline struct guest_iommu *domain_iommu(struct domain *d)
 {
-    return domain_hvm_iommu(d)->g_iommu;
+    return domain_hvm_iommu(d)->arch.g_iommu;
 }
 
 static inline struct guest_iommu *vcpu_iommu(struct vcpu *v)
 {
-    return domain_hvm_iommu(v->domain)->g_iommu;
+    return domain_hvm_iommu(v->domain)->arch.g_iommu;
 }
 
 static void guest_iommu_enable(struct guest_iommu *iommu)
@@ -424,12 +424,17 @@ static int do_invalidate_dte(struct domain *d, cmd_entry_t *cmd)
                                         sizeof(dev_entry_t), gbdf);
     ASSERT(mfn_valid(dte_mfn));
 
+    /* Read guest dte information */
     dte_base = map_domain_page(dte_mfn);
 
     gdte = dte_base + gbdf % (PAGE_SIZE / sizeof(dev_entry_t));
 
     gdom_id  = get_domid_from_dte(gdte);
     gcr3_gfn = get_guest_cr3_from_dte(gdte);
+    glx      = get_glx_from_dte(gdte);
+    gv       = get_gv_from_dte(gdte);
+
+    unmap_domain_page(dte_base);
 
     /* Do not update host dte before gcr3 has been set */
     if ( gcr3_gfn == 0 )
@@ -440,7 +445,6 @@ static int do_invalidate_dte(struct domain *d, cmd_entry_t *cmd)
 
     ASSERT(mfn_valid(gcr3_mfn));
 
-    /* Read guest dte information */
     iommu = find_iommu_for_device(0, mbdf);
     if ( !iommu )
     {
@@ -448,11 +452,6 @@ static int do_invalidate_dte(struct domain *d, cmd_entry_t *cmd)
                         __func__, mbdf);
         return -ENODEV;
     }
-
-    glx = get_glx_from_dte(gdte);
-    gv = get_gv_from_dte(gdte);
-
-    unmap_domain_page(dte_base);
 
     /* Setup host device entry */
     hdom_id = host_domid(d, gdom_id);
@@ -728,6 +727,7 @@ static void guest_iommu_mmio_write64(struct guest_iommu *iommu,
         break;
     case IOMMU_EVENT_LOG_BASE_LOW_OFFSET:
         u64_to_reg(&iommu->event_log.reg_base, val);
+        break;
     case IOMMU_PPR_LOG_BASE_LOW_OFFSET:
         u64_to_reg(&iommu->ppr_log.reg_base, val);
         break;
@@ -823,7 +823,7 @@ int guest_iommu_set_base(struct domain *d, uint64_t base)
         unsigned long gfn = base + i;
 
         get_gfn_query(d, gfn, &t);
-        p2m_change_type(d, gfn, t, p2m_mmio_dm);
+        p2m_change_type_one(d, gfn, t, p2m_mmio_dm);
         put_gfn(d, gfn);
     }
 
@@ -886,7 +886,7 @@ int guest_iommu_init(struct domain* d)
 
     guest_iommu_reg_init(iommu);
     iommu->domain = d;
-    hd->g_iommu = iommu;
+    hd->arch.g_iommu = iommu;
 
     tasklet_init(&iommu->cmd_buffer_tasklet,
                  guest_iommu_process_command, (unsigned long)d);
@@ -907,7 +907,7 @@ void guest_iommu_destroy(struct domain *d)
     tasklet_kill(&iommu->cmd_buffer_tasklet);
     xfree(iommu);
 
-    domain_hvm_iommu(d)->g_iommu = NULL;
+    domain_hvm_iommu(d)->arch.g_iommu = NULL;
 }
 
 static int guest_iommu_mmio_range(struct vcpu *v, unsigned long addr)

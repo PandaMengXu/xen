@@ -1,10 +1,6 @@
 XEN_ROOT = $(CURDIR)/..
 include $(XEN_ROOT)/tools/Rules.mk
 
-ifneq ($(CONFIG_SYSTEM_LIBAIO),y)
-SUBDIRS-libaio := libaio
-endif
-
 SUBDIRS-y :=
 SUBDIRS-y += include
 SUBDIRS-y += libxc
@@ -19,23 +15,20 @@ SUBDIRS-$(CONFIG_X86) += firmware
 SUBDIRS-y += console
 SUBDIRS-y += xenmon
 SUBDIRS-y += xenstat
-SUBDIRS-$(CONFIG_Linux) += $(SUBDIRS-libaio)
 SUBDIRS-$(CONFIG_Linux) += memshr 
-ifeq ($(CONFIG_X86),y)
-SUBDIRS-$(CONFIG_Linux) += blktap
+ifeq ($(CONFIG_X86)$(CONFIG_Linux),yy)
+SUBDIRS-$(CONFIG_BLKTAP1) += blktap
 endif
 SUBDIRS-$(CONFIG_Linux) += blktap2
-SUBDIRS-$(CONFIG_NetBSD) += $(SUBDIRS-libaio)
 SUBDIRS-$(CONFIG_NetBSD) += blktap2
 SUBDIRS-$(CONFIG_NetBSD) += xenbackendd
 SUBDIRS-y += libfsimage
-SUBDIRS-$(LIBXENAPI_BINDINGS) += libxen
 SUBDIRS-$(CONFIG_Linux) += libvchan
 
 # do not recurse in to a dir we are about to delete
 ifneq "$(MAKECMDGOALS)" "distclean"
-SUBDIRS-$(CONFIG_IOEMU) += qemu-xen-traditional-dir
-SUBDIRS-$(CONFIG_IOEMU) += qemu-xen-dir
+SUBDIRS-$(CONFIG_QEMU_TRAD) += qemu-xen-traditional-dir
+SUBDIRS-$(CONFIG_QEMU_XEN) += qemu-xen-dir
 endif
 
 SUBDIRS-y += xenpmd
@@ -45,6 +38,7 @@ SUBDIRS-$(CONFIG_X86) += xenpaging
 SUBDIRS-$(CONFIG_X86) += debugger/gdbsx
 SUBDIRS-$(CONFIG_X86) += debugger/kdd
 SUBDIRS-$(CONFIG_TESTS) += tests
+SUBDIRS-$(CONFIG_VTPM) += vtpmmgr
 
 # These don't cross-compile
 ifeq ($(XEN_COMPILE_ARCH),$(XEN_TARGET_ARCH))
@@ -69,12 +63,10 @@ install: subdirs-install
 	$(INSTALL_DIR) $(DESTDIR)/var/xen/dump
 	$(INSTALL_DIR) $(DESTDIR)/var/log/xen
 	$(INSTALL_DIR) $(DESTDIR)/var/lib/xen
-	$(INSTALL_DIR) $(DESTDIR)/var/lock/subsys
 
 .PHONY: uninstall
 uninstall: D=$(DESTDIR)
 uninstall:
-	rm -rf $(D)$(LIBDIR)/xen* $(D)$(BINDIR)/lomount
 	rm -rf $(D)$(BINDIR)/cpuperf-perfcntr $(D)$(BINDIR)/cpuperf-xen
 	rm -rf $(D)$(BINDIR)/xc_shadow
 	rm -rf $(D)$(BINDIR)/pygrub
@@ -180,6 +172,12 @@ qemu-xen-dir-force-update:
 		$(GIT) reset --hard $(QEMU_UPSTREAM_REVISION); \
 	fi
 
+ifeq ($(debug),y)
+QEMU_XEN_ENABLE_DEBUG := --enable-debug --enable-trace-backend=stderr
+else
+QEMU_XEN_ENABLE_DEBUG :=
+endif
+
 subdir-all-qemu-xen-dir: qemu-xen-dir-find
 	if test -d $(QEMU_UPSTREAM_URL) ; then \
 		source=$(QEMU_UPSTREAM_URL); \
@@ -188,6 +186,7 @@ subdir-all-qemu-xen-dir: qemu-xen-dir-find
 	fi; \
 	cd qemu-xen-dir; \
 	$$source/configure --enable-xen --target-list=i386-softmmu \
+		$(QEMU_XEN_ENABLE_DEBUG) \
 		--prefix=$(PREFIX) \
 		--source-path=$$source \
 		--extra-cflags="-I$(XEN_ROOT)/tools/include \
@@ -199,9 +198,12 @@ subdir-all-qemu-xen-dir: qemu-xen-dir-find
 		-L$(XEN_ROOT)/tools/xenstore" \
 		--bindir=$(LIBEXEC) \
 		--datadir=$(SHAREDIR)/qemu-xen \
+		--localstatedir=/var \
 		--disable-kvm \
 		--disable-docs \
+		--disable-guest-agent \
 		--python=$(PYTHON) \
+		$(CONFIG_QEMUU_EXTRA_ARGS) \
 		$(IOEMU_CONFIGURE_CROSS); \
 	$(MAKE) all
 

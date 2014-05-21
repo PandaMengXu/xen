@@ -56,7 +56,9 @@ bool_t __initdata acpi_ht = 1;	/* enable HT */
 bool_t __initdata acpi_lapic;
 bool_t __initdata acpi_ioapic;
 
-bool_t acpi_skip_timer_override __initdata;
+/* acpi_skip_timer_override: Skip IRQ0 overrides. */
+static bool_t acpi_skip_timer_override __initdata;
+boolean_param("acpi_skip_timer_override", acpi_skip_timer_override);
 
 #ifdef CONFIG_X86_LOCAL_APIC
 static u64 acpi_lapic_addr __initdata = APIC_DEFAULT_PHYS_BASE;
@@ -97,7 +99,20 @@ acpi_parse_x2apic(struct acpi_subtable_header *header, const unsigned long end)
 
 	acpi_table_print_madt_entry(header);
 
-	/* Record local apic id only when enabled */
+	/* Record local apic id only when enabled and fitting. */
+	if (processor->local_apic_id >= MAX_APICS ||
+	    processor->uid >= MAX_MADT_ENTRIES) {
+		printk("%sAPIC ID %#x and/or ACPI ID %#x beyond limit"
+		       " - processor ignored\n",
+		       processor->lapic_flags & ACPI_MADT_ENABLED ?
+				KERN_WARNING "WARNING: " : KERN_INFO,
+		       processor->local_apic_id, processor->uid);
+		/*
+		 * Must not return an error here, to prevent
+		 * acpi_table_parse_entries() from terminating early.
+		 */
+		return 0 /* -ENOSPC */;
+	}
 	if (processor->lapic_flags & ACPI_MADT_ENABLED) {
 		x86_acpiid_to_apicid[processor->uid] =
 			processor->local_apic_id;
@@ -276,6 +291,22 @@ static int __init acpi_parse_hpet(struct acpi_table_header *table)
 		return -1;
 	}
 
+	/*
+	 * Some BIOSes provide multiple HPET tables.  Sometimes this is a BIOS
+	 * bug; the intended way of supporting more than 1 HPET is to use AML
+	 * entries.
+	 *
+	 * If someone finds a real system with two genuine HPET tables, perhaps
+	 * they will be kind and implement support.  Until then however, warn
+	 * that we will ignore subsequent tables.
+	 */
+	if (hpet_address)
+	{
+		printk(KERN_WARNING PREFIX
+		       "Found multiple HPET tables. Only using first\n");
+		return -1;
+	}
+
 	hpet_address = hpet_tbl->address.address;
 	hpet_blockid = hpet_tbl->sequence;
 	printk(KERN_INFO PREFIX "HPET id: %#x base: %#lx\n",
@@ -373,11 +404,15 @@ acpi_fadt_parse_sleep_info(struct acpi_table_fadt *fadt)
 	acpi_fadt_copy_address(pm1b_evt, pm1b_event, pm1_event);
 
 	printk(KERN_INFO PREFIX
-	       "SLEEP INFO: pm1x_cnt[%"PRIx64",%"PRIx64"], "
-	       "pm1x_evt[%"PRIx64",%"PRIx64"]\n",
+	       "SLEEP INFO: pm1x_cnt[%d:%"PRIx64",%d:%"PRIx64"], "
+	       "pm1x_evt[%d:%"PRIx64",%d:%"PRIx64"]\n",
+	       acpi_sinfo.pm1a_cnt_blk.space_id,
 	       acpi_sinfo.pm1a_cnt_blk.address,
+	       acpi_sinfo.pm1b_cnt_blk.space_id,
 	       acpi_sinfo.pm1b_cnt_blk.address,
+	       acpi_sinfo.pm1a_evt_blk.space_id,
 	       acpi_sinfo.pm1a_evt_blk.address,
+	       acpi_sinfo.pm1b_evt_blk.space_id,
 	       acpi_sinfo.pm1b_evt_blk.address);
 
 	/* Now FACS... */

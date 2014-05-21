@@ -43,10 +43,12 @@ int main_pciattach(int argc, char **argv);
 int main_pciassignable_add(int argc, char **argv);
 int main_pciassignable_remove(int argc, char **argv);
 int main_pciassignable_list(int argc, char **argv);
+#ifndef LIBXL_HAVE_NO_SUSPEND_RESUME
 int main_restore(int argc, char **argv);
 int main_migrate_receive(int argc, char **argv);
 int main_save(int argc, char **argv);
 int main_migrate(int argc, char **argv);
+#endif
 int main_dump_core(int argc, char **argv);
 int main_pause(int argc, char **argv);
 int main_unpause(int argc, char **argv);
@@ -106,7 +108,10 @@ int main_cpupoolnumasplit(int argc, char **argv);
 int main_getenforce(int argc, char **argv);
 int main_setenforce(int argc, char **argv);
 int main_loadpolicy(int argc, char **argv);
+#ifndef LIBXL_HAVE_NO_SUSPEND_RESUME
 int main_remus(int argc, char **argv);
+#endif
+int main_devd(int argc, char **argv);
 
 void help(const char *command);
 
@@ -127,16 +132,18 @@ typedef struct {
     pid_t pid; /* 0: not in use */
     int reaped; /* valid iff pid!=0 */
     int status; /* valid iff reaped */
+    const char *description; /* valid iff pid!=0 */
 } xlchild;
 
 typedef enum {
-    child_console, child_waitdaemon, child_migration,
+    child_console, child_waitdaemon, child_migration, child_vncviewer,
     child_max
 } xlchildnum;
 
 extern xlchild children[child_max];
 
-pid_t xl_fork(xlchildnum); /* like fork, but prints and dies if it fails */
+pid_t xl_fork(xlchildnum, const char *description);
+    /* like fork, but prints and dies if it fails */
 void postfork(void); /* needed only if we aren't going to exec right away */
 
 /* Handles EINTR.  Clears out the xlchild so it can be reused. */
@@ -144,11 +151,22 @@ pid_t xl_waitpid(xlchildnum, int *status, int flags);
 
 int xl_child_pid(xlchildnum); /* returns 0 if child struct is not in use */
 
+void xl_report_child_exitstatus(xentoollog_level level,
+                                xlchildnum child, pid_t pid, int status);
+    /* like libxl_report_child_exitstatus, but uses children[].description */
+
+int child_report(xlchildnum child);
+    /* waits and expects child to exit status 0.
+     * otherwise, logs and returns ERROR_FAIL */
+
 /* global options */
 extern int autoballoon;
 extern int run_hotplug_scripts;
 extern int dryrun_only;
 extern int claim_mode;
+extern bool progress_use_cr;
+extern xentoollog_level minmsglevel;
+#define minmsglevel_default XTL_PROGRESS
 extern char *lockfile;
 extern char *default_vifscript;
 extern char *default_bridge;

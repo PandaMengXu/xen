@@ -18,12 +18,12 @@
 #include <asm/hvm/iommu.h>
 #include <xen/paging.h>
 #include <xen/guest_access.h>
+#include <xen/event.h>
 #include <xen/softirq.h>
 #include <xen/keyhandler.h>
 #include <xsm/xsm.h>
 
 static void parse_iommu_param(char *s);
-static int iommu_populate_page_table(struct domain *d);
 static void iommu_dump_p2m_table(unsigned char key);
 
 /*
@@ -44,7 +44,7 @@ custom_param("iommu", parse_iommu_param);
 bool_t __initdata iommu_enable = 1;
 bool_t __read_mostly iommu_enabled;
 bool_t __read_mostly force_iommu;
-bool_t __initdata iommu_dom0_strict;
+bool_t __hwdom_initdata iommu_dom0_strict;
 bool_t __read_mostly iommu_verbose;
 bool_t __read_mostly iommu_workaround_bios_bug;
 bool_t __read_mostly iommu_passthrough;
@@ -56,6 +56,10 @@ bool_t __read_mostly iommu_debug;
 bool_t __read_mostly amd_iommu_perdev_intremap = 1;
 
 DEFINE_PER_CPU(bool_t, iommu_dont_flush_iotlb);
+
+DEFINE_SPINLOCK(iommu_pt_cleanup_lock);
+PAGE_LIST_HEAD(iommu_pt_cleanup_list);
+static struct tasklet iommu_pt_cleanup_tasklet;
 
 static struct keyhandler iommu_p2m_table = {
     .diagnostic = 0,
@@ -113,10 +117,11 @@ static void __init parse_iommu_param(char *s)
 int iommu_domain_init(struct domain *d)
 {
     struct hvm_iommu *hd = domain_hvm_iommu(d);
+    int ret = 0;
 
-    spin_lock_init(&hd->mapping_lock);
-    INIT_LIST_HEAD(&hd->g2m_ioport_list);
-    INIT_LIST_HEAD(&hd->mapped_rmrrs);
+    ret = arch_iommu_domain_init(d);
+    if ( ret )
+        return ret;
 
     if ( !iommu_enabled )
         return 0;
@@ -125,245 +130,74 @@ int iommu_domain_init(struct domain *d)
     return hd->platform_ops->init(d);
 }
 
-void __init iommu_dom0_init(struct domain *d)
+static void __hwdom_init check_hwdom_reqs(struct domain *d)
+{
+    if ( !paging_mode_translate(d) )
+        return;
+
+    arch_iommu_check_autotranslated_hwdom(d);
+
+    if ( iommu_passthrough )
+        panic("Dom0 uses paging translated mode, dom0-passthrough must not be "
+              "enabled\n");
+
+    iommu_dom0_strict = 1;
+}
+
+void __hwdom_init iommu_hwdom_init(struct domain *d)
 {
     struct hvm_iommu *hd = domain_hvm_iommu(d);
+
+    check_hwdom_reqs(d);
 
     if ( !iommu_enabled )
         return;
 
     register_keyhandler('o', &iommu_p2m_table);
     d->need_iommu = !!iommu_dom0_strict;
-    if ( need_iommu(d) )
+    if ( need_iommu(d) && !iommu_use_hap_pt(d) )
     {
         struct page_info *page;
         unsigned int i = 0;
         page_list_for_each ( page, &d->page_list )
         {
             unsigned long mfn = page_to_mfn(page);
+            unsigned long gfn = mfn_to_gmfn(d, mfn);
             unsigned int mapping = IOMMUF_readable;
+
             if ( ((page->u.inuse.type_info & PGT_count_mask) == 0) ||
                  ((page->u.inuse.type_info & PGT_type_mask)
                   == PGT_writable_page) )
                 mapping |= IOMMUF_writable;
-            hd->platform_ops->map_page(d, mfn, mfn, mapping);
+            hd->platform_ops->map_page(d, gfn, mfn, mapping);
             if ( !(i++ & 0xfffff) )
                 process_pending_softirqs();
         }
     }
 
-    return hd->platform_ops->dom0_init(d);
+    return hd->platform_ops->hwdom_init(d);
 }
 
-int iommu_add_device(struct pci_dev *pdev)
+void iommu_teardown(struct domain *d)
 {
-    struct hvm_iommu *hd;
-    int rc;
-    u8 devfn;
+    const struct hvm_iommu *hd = domain_hvm_iommu(d);
 
-    if ( !pdev->domain )
-        return -EINVAL;
-
-    ASSERT(spin_is_locked(&pcidevs_lock));
-
-    hd = domain_hvm_iommu(pdev->domain);
-    if ( !iommu_enabled || !hd->platform_ops )
-        return 0;
-
-    rc = hd->platform_ops->add_device(pdev->devfn, pdev);
-    if ( rc || !pdev->phantom_stride )
-        return rc;
-
-    for ( devfn = pdev->devfn ; ; )
-    {
-        devfn += pdev->phantom_stride;
-        if ( PCI_SLOT(devfn) != PCI_SLOT(pdev->devfn) )
-            return 0;
-        rc = hd->platform_ops->add_device(devfn, pdev);
-        if ( rc )
-            printk(XENLOG_WARNING "IOMMU: add %04x:%02x:%02x.%u failed (%d)\n",
-                   pdev->seg, pdev->bus, PCI_SLOT(devfn), PCI_FUNC(devfn), rc);
-    }
+    d->need_iommu = 0;
+    hd->platform_ops->teardown(d);
+    tasklet_schedule(&iommu_pt_cleanup_tasklet);
 }
-
-int iommu_enable_device(struct pci_dev *pdev)
-{
-    struct hvm_iommu *hd;
-
-    if ( !pdev->domain )
-        return -EINVAL;
-
-    ASSERT(spin_is_locked(&pcidevs_lock));
-
-    hd = domain_hvm_iommu(pdev->domain);
-    if ( !iommu_enabled || !hd->platform_ops ||
-         !hd->platform_ops->enable_device )
-        return 0;
-
-    return hd->platform_ops->enable_device(pdev);
-}
-
-int iommu_remove_device(struct pci_dev *pdev)
-{
-    struct hvm_iommu *hd;
-    u8 devfn;
-
-    if ( !pdev->domain )
-        return -EINVAL;
-
-    hd = domain_hvm_iommu(pdev->domain);
-    if ( !iommu_enabled || !hd->platform_ops )
-        return 0;
-
-    for ( devfn = pdev->devfn ; pdev->phantom_stride; )
-    {
-        int rc;
-
-        devfn += pdev->phantom_stride;
-        if ( PCI_SLOT(devfn) != PCI_SLOT(pdev->devfn) )
-            break;
-        rc = hd->platform_ops->remove_device(devfn, pdev);
-        if ( !rc )
-            continue;
-
-        printk(XENLOG_ERR "IOMMU: remove %04x:%02x:%02x.%u failed (%d)\n",
-               pdev->seg, pdev->bus, PCI_SLOT(devfn), PCI_FUNC(devfn), rc);
-        return rc;
-    }
-
-    return hd->platform_ops->remove_device(pdev->devfn, pdev);
-}
-
-/*
- * If the device isn't owned by dom0, it means it already
- * has been assigned to other domain, or it doesn't exist.
- */
-static int device_assigned(u16 seg, u8 bus, u8 devfn)
-{
-    struct pci_dev *pdev;
-
-    spin_lock(&pcidevs_lock);
-    pdev = pci_get_pdev_by_domain(dom0, seg, bus, devfn);
-    spin_unlock(&pcidevs_lock);
-
-    return pdev ? 0 : -EBUSY;
-}
-
-static int assign_device(struct domain *d, u16 seg, u8 bus, u8 devfn)
-{
-    struct hvm_iommu *hd = domain_hvm_iommu(d);
-    struct pci_dev *pdev;
-    int rc = 0;
-
-    if ( !iommu_enabled || !hd->platform_ops )
-        return 0;
-
-    /* Prevent device assign if mem paging or mem sharing have been 
-     * enabled for this domain */
-    if ( unlikely(!need_iommu(d) &&
-            (d->arch.hvm_domain.mem_sharing_enabled ||
-             d->mem_event->paging.ring_page)) )
-        return -EXDEV;
-
-    spin_lock(&pcidevs_lock);
-    pdev = pci_get_pdev_by_domain(dom0, seg, bus, devfn);
-    if ( !pdev )
-    {
-        rc = pci_get_pdev(seg, bus, devfn) ? -EBUSY : -ENODEV;
-        goto done;
-    }
-
-    pdev->fault.count = 0;
-
-    if ( (rc = hd->platform_ops->assign_device(d, devfn, pdev)) )
-        goto done;
-
-    for ( ; pdev->phantom_stride; rc = 0 )
-    {
-        devfn += pdev->phantom_stride;
-        if ( PCI_SLOT(devfn) != PCI_SLOT(pdev->devfn) )
-            break;
-        rc = hd->platform_ops->assign_device(d, devfn, pdev);
-        if ( rc )
-            printk(XENLOG_G_WARNING "d%d: assign %04x:%02x:%02x.%u failed (%d)\n",
-                   d->domain_id, seg, bus, PCI_SLOT(devfn), PCI_FUNC(devfn),
-                   rc);
-    }
-
-    if ( has_arch_pdevs(d) && !need_iommu(d) )
-    {
-        d->need_iommu = 1;
-        if ( !iommu_use_hap_pt(d) )
-            rc = iommu_populate_page_table(d);
-        goto done;
-    }
-done:
-    spin_unlock(&pcidevs_lock);
-    return rc;
-}
-
-static int iommu_populate_page_table(struct domain *d)
-{
-    struct hvm_iommu *hd = domain_hvm_iommu(d);
-    struct page_info *page;
-    int rc;
-
-    spin_lock(&d->page_alloc_lock);
-
-    this_cpu(iommu_dont_flush_iotlb) = 1;
-    page_list_for_each ( page, &d->page_list )
-    {
-        if ( is_hvm_domain(d) ||
-            (page->u.inuse.type_info & PGT_type_mask) == PGT_writable_page )
-        {
-            BUG_ON(SHARED_M2P(mfn_to_gmfn(d, page_to_mfn(page))));
-            rc = hd->platform_ops->map_page(
-                d, mfn_to_gmfn(d, page_to_mfn(page)), page_to_mfn(page),
-                IOMMUF_readable|IOMMUF_writable);
-            if (rc)
-            {
-                spin_unlock(&d->page_alloc_lock);
-                hd->platform_ops->teardown(d);
-                return rc;
-            }
-        }
-    }
-    this_cpu(iommu_dont_flush_iotlb) = 0;
-    iommu_iotlb_flush_all(d);
-    spin_unlock(&d->page_alloc_lock);
-    return 0;
-}
-
 
 void iommu_domain_destroy(struct domain *d)
 {
-    struct hvm_iommu *hd  = domain_hvm_iommu(d);
-    struct list_head *ioport_list, *rmrr_list, *tmp;
-    struct g2m_ioport *ioport;
-    struct mapped_rmrr *mrmrr;
+    struct hvm_iommu *hd = domain_hvm_iommu(d);
 
     if ( !iommu_enabled || !hd->platform_ops )
         return;
 
     if ( need_iommu(d) )
-    {
-        d->need_iommu = 0;
-        hd->platform_ops->teardown(d);
-    }
+        iommu_teardown(d);
 
-    list_for_each_safe ( ioport_list, tmp, &hd->g2m_ioport_list )
-    {
-        ioport = list_entry(ioport_list, struct g2m_ioport, list);
-        list_del(&ioport->list);
-        xfree(ioport);
-    }
-
-    list_for_each_safe ( rmrr_list, tmp, &hd->mapped_rmrrs )
-    {
-        mrmrr = list_entry(rmrr_list, struct mapped_rmrr, list);
-        list_del(&mrmrr->list);
-        xfree(mrmrr);
-    }
+    arch_iommu_domain_destroy(d);
 }
 
 int iommu_map_page(struct domain *d, unsigned long gfn, unsigned long mfn,
@@ -387,6 +221,23 @@ int iommu_unmap_page(struct domain *d, unsigned long gfn)
     return hd->platform_ops->unmap_page(d, gfn);
 }
 
+static void iommu_free_pagetables(unsigned long unused)
+{
+    do {
+        struct page_info *pg;
+
+        spin_lock(&iommu_pt_cleanup_lock);
+        pg = page_list_remove_head(&iommu_pt_cleanup_list);
+        spin_unlock(&iommu_pt_cleanup_lock);
+        if ( !pg )
+            return;
+        iommu_get_ops()->free_page_table(pg);
+    } while ( !softirq_pending(smp_processor_id()) );
+
+    tasklet_schedule_on_cpu(&iommu_pt_cleanup_tasklet,
+                            cpumask_cycle(smp_processor_id(), &cpu_online_map));
+}
+
 void iommu_iotlb_flush(struct domain *d, unsigned long gfn, unsigned int page_count)
 {
     struct hvm_iommu *hd = domain_hvm_iommu(d);
@@ -407,56 +258,6 @@ void iommu_iotlb_flush_all(struct domain *d)
     hd->platform_ops->iotlb_flush_all(d);
 }
 
-/* caller should hold the pcidevs_lock */
-int deassign_device(struct domain *d, u16 seg, u8 bus, u8 devfn)
-{
-    struct hvm_iommu *hd = domain_hvm_iommu(d);
-    struct pci_dev *pdev = NULL;
-    int ret = 0;
-
-    if ( !iommu_enabled || !hd->platform_ops )
-        return -EINVAL;
-
-    ASSERT(spin_is_locked(&pcidevs_lock));
-    pdev = pci_get_pdev_by_domain(d, seg, bus, devfn);
-    if ( !pdev )
-        return -ENODEV;
-
-    while ( pdev->phantom_stride )
-    {
-        devfn += pdev->phantom_stride;
-        if ( PCI_SLOT(devfn) != PCI_SLOT(pdev->devfn) )
-            break;
-        ret = hd->platform_ops->reassign_device(d, dom0, devfn, pdev);
-        if ( !ret )
-            continue;
-
-        printk(XENLOG_G_ERR "d%d: deassign %04x:%02x:%02x.%u failed (%d)\n",
-               d->domain_id, seg, bus, PCI_SLOT(devfn), PCI_FUNC(devfn), ret);
-        return ret;
-    }
-
-    devfn = pdev->devfn;
-    ret = hd->platform_ops->reassign_device(d, dom0, devfn, pdev);
-    if ( ret )
-    {
-        dprintk(XENLOG_G_ERR,
-                "d%d: deassign device (%04x:%02x:%02x.%u) failed\n",
-                d->domain_id, seg, bus, PCI_SLOT(devfn), PCI_FUNC(devfn));
-        return ret;
-    }
-
-    pdev->fault.count = 0;
-
-    if ( !has_arch_pdevs(d) && need_iommu(d) )
-    {
-        d->need_iommu = 0;
-        hd->platform_ops->teardown(d);
-    }
-
-    return ret;
-}
-
 int __init iommu_setup(void)
 {
     int rc = -ENODEV;
@@ -475,7 +276,7 @@ int __init iommu_setup(void)
 
     if ( (force_iommu && !iommu_enabled) ||
          (force_intremap && !iommu_intremap) )
-        panic("Couldn't enable %s and iommu=required/force\n",
+        panic("Couldn't enable %s and iommu=required/force",
               !iommu_enabled ? "IOMMU" : "Interrupt Remapping");
 
     if ( !iommu_enabled )
@@ -491,89 +292,10 @@ int __init iommu_setup(void)
                iommu_passthrough ? "Passthrough" :
                iommu_dom0_strict ? "Strict" : "Relaxed");
         printk("Interrupt remapping %sabled\n", iommu_intremap ? "en" : "dis");
+        tasklet_init(&iommu_pt_cleanup_tasklet, iommu_free_pagetables, 0);
     }
 
     return rc;
-}
-
-static int iommu_get_device_group(
-    struct domain *d, u16 seg, u8 bus, u8 devfn,
-    XEN_GUEST_HANDLE_64(uint32) buf, int max_sdevs)
-{
-    struct hvm_iommu *hd = domain_hvm_iommu(d);
-    struct pci_dev *pdev;
-    int group_id, sdev_id;
-    u32 bdf;
-    int i = 0;
-    const struct iommu_ops *ops = hd->platform_ops;
-
-    if ( !iommu_enabled || !ops || !ops->get_device_group_id )
-        return 0;
-
-    group_id = ops->get_device_group_id(seg, bus, devfn);
-
-    spin_lock(&pcidevs_lock);
-    for_each_pdev( d, pdev )
-    {
-        if ( (pdev->seg != seg) ||
-             ((pdev->bus == bus) && (pdev->devfn == devfn)) )
-            continue;
-
-        if ( xsm_get_device_group(XSM_HOOK, (seg << 16) | (pdev->bus << 8) | pdev->devfn) )
-            continue;
-
-        sdev_id = ops->get_device_group_id(seg, pdev->bus, pdev->devfn);
-        if ( (sdev_id == group_id) && (i < max_sdevs) )
-        {
-            bdf = 0;
-            bdf |= (pdev->bus & 0xff) << 16;
-            bdf |= (pdev->devfn & 0xff) << 8;
-
-            if ( unlikely(copy_to_guest_offset(buf, i, &bdf, 1)) )
-            {
-                spin_unlock(&pcidevs_lock);
-                return -1;
-            }
-            i++;
-        }
-    }
-    spin_unlock(&pcidevs_lock);
-
-    return i;
-}
-
-void iommu_update_ire_from_apic(
-    unsigned int apic, unsigned int reg, unsigned int value)
-{
-    const struct iommu_ops *ops = iommu_get_ops();
-    ops->update_ire_from_apic(apic, reg, value);
-}
-
-int iommu_update_ire_from_msi(
-    struct msi_desc *msi_desc, struct msi_msg *msg)
-{
-    const struct iommu_ops *ops = iommu_get_ops();
-    return iommu_intremap ? ops->update_ire_from_msi(msi_desc, msg) : 0;
-}
-
-void iommu_read_msi_from_ire(
-    struct msi_desc *msi_desc, struct msi_msg *msg)
-{
-    const struct iommu_ops *ops = iommu_get_ops();
-    if ( iommu_intremap )
-        ops->read_msi_from_ire(msi_desc, msg);
-}
-
-unsigned int iommu_read_apic_from_ire(unsigned int apic, unsigned int reg)
-{
-    const struct iommu_ops *ops = iommu_get_ops();
-    return ops->read_apic_from_ire(apic, reg);
-}
-
-int __init iommu_setup_hpet_msi(struct msi_desc *msi)
-{
-    const struct iommu_ops *ops = iommu_get_ops();
-    return ops->setup_hpet_msi ? ops->setup_hpet_msi(msi) : -ENODEV;
 }
 
 void iommu_resume()
@@ -581,6 +303,22 @@ void iommu_resume()
     const struct iommu_ops *ops = iommu_get_ops();
     if ( iommu_enabled )
         ops->resume();
+}
+
+int iommu_do_domctl(
+    struct xen_domctl *domctl, struct domain *d,
+    XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
+{
+    int ret = -ENOSYS;
+
+    if ( !iommu_enabled )
+        return -ENOSYS;
+
+#ifdef HAS_PCI
+    ret = iommu_do_pci_domctl(domctl, d, u_domctl);
+#endif
+
+    return ret;
 }
 
 void iommu_suspend()
@@ -606,122 +344,6 @@ void iommu_crash_shutdown(void)
     iommu_enabled = iommu_intremap = 0;
 }
 
-int iommu_do_domctl(
-    struct xen_domctl *domctl, struct domain *d,
-    XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
-{
-    u16 seg;
-    u8 bus, devfn;
-    int ret = 0;
-
-    if ( !iommu_enabled )
-        return -ENOSYS;
-
-    switch ( domctl->cmd )
-    {
-    case XEN_DOMCTL_get_device_group:
-    {
-        u32 max_sdevs;
-        XEN_GUEST_HANDLE_64(uint32) sdevs;
-
-        ret = xsm_get_device_group(XSM_HOOK, domctl->u.get_device_group.machine_sbdf);
-        if ( ret )
-            break;
-
-        seg = domctl->u.get_device_group.machine_sbdf >> 16;
-        bus = (domctl->u.get_device_group.machine_sbdf >> 8) & 0xff;
-        devfn = domctl->u.get_device_group.machine_sbdf & 0xff;
-        max_sdevs = domctl->u.get_device_group.max_sdevs;
-        sdevs = domctl->u.get_device_group.sdev_array;
-
-        ret = iommu_get_device_group(d, seg, bus, devfn, sdevs, max_sdevs);
-        if ( ret < 0 )
-        {
-            dprintk(XENLOG_ERR, "iommu_get_device_group() failed!\n");
-            ret = -EFAULT;
-            domctl->u.get_device_group.num_sdevs = 0;
-        }
-        else
-        {
-            domctl->u.get_device_group.num_sdevs = ret;
-            ret = 0;
-        }
-        if ( __copy_field_to_guest(u_domctl, domctl, u.get_device_group) )
-            ret = -EFAULT;
-    }
-    break;
-
-    case XEN_DOMCTL_test_assign_device:
-        ret = xsm_test_assign_device(XSM_HOOK, domctl->u.assign_device.machine_sbdf);
-        if ( ret )
-            break;
-
-        seg = domctl->u.assign_device.machine_sbdf >> 16;
-        bus = (domctl->u.assign_device.machine_sbdf >> 8) & 0xff;
-        devfn = domctl->u.assign_device.machine_sbdf & 0xff;
-
-        if ( device_assigned(seg, bus, devfn) )
-        {
-            printk(XENLOG_G_INFO
-                   "%04x:%02x:%02x.%u already assigned, or non-existent\n",
-                   seg, bus, PCI_SLOT(devfn), PCI_FUNC(devfn));
-            ret = -EINVAL;
-        }
-        break;
-
-    case XEN_DOMCTL_assign_device:
-        if ( unlikely(d->is_dying) )
-        {
-            ret = -EINVAL;
-            break;
-        }
-
-        ret = xsm_assign_device(XSM_HOOK, d, domctl->u.assign_device.machine_sbdf);
-        if ( ret )
-            break;
-
-        seg = domctl->u.assign_device.machine_sbdf >> 16;
-        bus = (domctl->u.assign_device.machine_sbdf >> 8) & 0xff;
-        devfn = domctl->u.assign_device.machine_sbdf & 0xff;
-
-        ret = device_assigned(seg, bus, devfn) ?:
-              assign_device(d, seg, bus, devfn);
-        if ( ret )
-            printk(XENLOG_G_ERR "XEN_DOMCTL_assign_device: "
-                   "assign %04x:%02x:%02x.%u to dom%d failed (%d)\n",
-                   seg, bus, PCI_SLOT(devfn), PCI_FUNC(devfn),
-                   d->domain_id, ret);
-
-        break;
-
-    case XEN_DOMCTL_deassign_device:
-        ret = xsm_deassign_device(XSM_HOOK, d, domctl->u.assign_device.machine_sbdf);
-        if ( ret )
-            break;
-
-        seg = domctl->u.assign_device.machine_sbdf >> 16;
-        bus = (domctl->u.assign_device.machine_sbdf >> 8) & 0xff;
-        devfn = domctl->u.assign_device.machine_sbdf & 0xff;
-
-        spin_lock(&pcidevs_lock);
-        ret = deassign_device(d, seg, bus, devfn);
-        spin_unlock(&pcidevs_lock);
-        if ( ret )
-            printk(XENLOG_G_ERR
-                   "deassign %04x:%02x:%02x.%u from dom%d failed (%d)\n",
-                   seg, bus, PCI_SLOT(devfn), PCI_FUNC(devfn),
-                   d->domain_id, ret);
-
-        break;
-
-    default:
-        ret = -ENOSYS;
-        break;
-    }
-
-    return ret;
-}
-
 static void iommu_dump_p2m_table(unsigned char key)
 {
     struct domain *d;
@@ -736,7 +358,7 @@ static void iommu_dump_p2m_table(unsigned char key)
     ops = iommu_get_ops();
     for_each_domain(d)
     {
-        if ( !d->domain_id )
+        if ( is_hardware_domain(d) )
             continue;
 
         if ( iommu_use_hap_pt(d) )

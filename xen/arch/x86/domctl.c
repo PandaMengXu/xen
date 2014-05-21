@@ -46,12 +46,15 @@ static int gdbsx_guest_mem_io(
     return (iop->remain ? -EFAULT : 0);
 }
 
+#define MAX_IOPORTS 0x10000
+
 long arch_do_domctl(
     struct xen_domctl *domctl, struct domain *d,
     XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
 {
     long ret = 0;
     bool_t copyback = 0;
+    unsigned long i;
 
     switch ( domctl->cmd )
     {
@@ -71,18 +74,18 @@ long arch_do_domctl(
         unsigned int np = domctl->u.ioport_permission.nr_ports;
         int allow = domctl->u.ioport_permission.allow_access;
 
-        ret = -EINVAL;
-        if ( (fp + np) > 65536 )
-            break;
-
-        if ( np == 0 )
-            ret = 0;
-        else if ( xsm_ioport_permission(XSM_HOOK, d, fp, fp + np - 1, allow) )
+        if ( (fp + np) <= fp || (fp + np) > MAX_IOPORTS )
+            ret = -EINVAL;
+        else if ( !ioports_access_permitted(current->domain,
+                                            fp, fp + np - 1) ||
+                  xsm_ioport_permission(XSM_HOOK, d, fp, fp + np - 1, allow) )
             ret = -EPERM;
         else if ( allow )
             ret = ioports_permit_access(d, fp, fp + np - 1);
         else
             ret = ioports_deny_access(d, fp, fp + np - 1);
+        if ( !ret )
+            memory_type_changed(d);
     }
     break;
 
@@ -319,13 +322,32 @@ long arch_do_domctl(
 
     case XEN_DOMCTL_getmemlist:
     {
-        int i;
         unsigned long max_pfns = domctl->u.getmemlist.max_pfns;
         uint64_t mfn;
         struct page_info *page;
 
         if ( unlikely(d->is_dying) ) {
             ret = -EINVAL;
+            break;
+        }
+
+        /*
+         * XSA-74: This sub-hypercall is broken in several ways:
+         * - lock order inversion (p2m locks inside page_alloc_lock)
+         * - no preemption on huge max_pfns input
+         * - not (re-)checking d->is_dying with page_alloc_lock held
+         * - not honoring start_pfn input (which libxc also doesn't set)
+         * Additionally it is rather useless, as the result is stale by the
+         * time the caller gets to look at it.
+         * As it only has a single, non-production consumer (xen-mceinj),
+         * rather than trying to fix it we restrict it for the time being.
+         */
+        if ( /* No nested locks inside copy_to_guest_offset(). */
+             paging_mode_external(current->domain) ||
+             /* Arbitrary limit capping processing time. */
+             max_pfns > GB(4) / PAGE_SIZE )
+        {
+            ret = -EOPNOTSUPP;
             break;
         }
 
@@ -625,7 +647,6 @@ long arch_do_domctl(
         unsigned long mfn = domctl->u.memory_mapping.first_mfn;
         unsigned long nr_mfns = domctl->u.memory_mapping.nr_mfns;
         int add = domctl->u.memory_mapping.add_mapping;
-        unsigned long i;
 
         ret = -EINVAL;
         if ( (mfn + nr_mfns - 1) < mfn || /* wrap? */
@@ -651,13 +672,12 @@ long arch_do_domctl(
             if ( !ret && paging_mode_translate(d) )
             {
                 for ( i = 0; !ret && i < nr_mfns; i++ )
-                    if ( !set_mmio_p2m_entry(d, gfn + i, _mfn(mfn + i)) )
-                        ret = -EIO;
+                    ret = set_mmio_p2m_entry(d, gfn + i, _mfn(mfn + i));
                 if ( ret )
                 {
                     printk(XENLOG_G_WARNING
-                           "memory_map:fail: dom%d gfn=%lx mfn=%lx\n",
-                           d->domain_id, gfn + i, mfn + i);
+                           "memory_map:fail: dom%d gfn=%lx mfn=%lx ret:%ld\n",
+                           d->domain_id, gfn + i, mfn + i, ret);
                     while ( i-- )
                         clear_mmio_p2m_entry(d, gfn + i);
                     if ( iomem_deny_access(d, mfn, mfn + nr_mfns - 1) &&
@@ -670,28 +690,35 @@ long arch_do_domctl(
         }
         else
         {
+            int tmp_rc = 0;
+
             printk(XENLOG_G_INFO
                    "memory_map:remove: dom%d gfn=%lx mfn=%lx nr=%lx\n",
                    d->domain_id, gfn, mfn, nr_mfns);
 
             if ( paging_mode_translate(d) )
                 for ( i = 0; i < nr_mfns; i++ )
-                    add |= !clear_mmio_p2m_entry(d, gfn + i);
+                {
+                    ret = clear_mmio_p2m_entry(d, gfn + i);
+                    if ( ret )
+                        tmp_rc = ret;
+                }
             ret = iomem_deny_access(d, mfn, mfn + nr_mfns - 1);
-            if ( !ret && add )
-                ret = -EIO;
+            if ( !ret )
+                ret = tmp_rc;
             if ( ret && is_hardware_domain(current->domain) )
                 printk(XENLOG_ERR
                        "memory_map: error %ld %s dom%d access to [%lx,%lx]\n",
-                       ret, add ? "removing" : "denying", d->domain_id,
+                       ret, tmp_rc ? "removing" : "denying", d->domain_id,
                        mfn, mfn + nr_mfns - 1);
         }
+        /* Do this unconditionally to cover errors on above failure paths. */
+        memory_type_changed(d);
     }
     break;
 
     case XEN_DOMCTL_ioport_mapping:
     {
-#define MAX_IOPORTS    0x10000
         struct hvm_iommu *hd;
         unsigned int fgp = domctl->u.ioport_mapping.first_gport;
         unsigned int fmp = domctl->u.ioport_mapping.first_mport;
@@ -725,7 +752,7 @@ long arch_do_domctl(
                    "ioport_map:add: dom%d gport=%x mport=%x nr=%x\n",
                    d->domain_id, fgp, fmp, np);
 
-            list_for_each_entry(g2m_ioport, &hd->g2m_ioport_list, list)
+            list_for_each_entry(g2m_ioport, &hd->arch.g2m_ioport_list, list)
                 if (g2m_ioport->mport == fmp )
                 {
                     g2m_ioport->gport = fgp;
@@ -744,7 +771,7 @@ long arch_do_domctl(
                 g2m_ioport->gport = fgp;
                 g2m_ioport->mport = fmp;
                 g2m_ioport->np = np;
-                list_add_tail(&g2m_ioport->list, &hd->g2m_ioport_list);
+                list_add_tail(&g2m_ioport->list, &hd->arch.g2m_ioport_list);
             }
             if ( !ret )
                 ret = ioports_permit_access(d, fmp, fmp + np - 1);
@@ -759,7 +786,7 @@ long arch_do_domctl(
             printk(XENLOG_G_INFO
                    "ioport_map:remove: dom%d gport=%x mport=%x nr=%x\n",
                    d->domain_id, fgp, fmp, np);
-            list_for_each_entry(g2m_ioport, &hd->g2m_ioport_list, list)
+            list_for_each_entry(g2m_ioport, &hd->arch.g2m_ioport_list, list)
                 if ( g2m_ioport->mport == fmp )
                 {
                     list_del(&g2m_ioport->list);
@@ -772,6 +799,8 @@ long arch_do_domctl(
                        "ioport_map: error %ld denying dom%d access to [%x,%x]\n",
                        ret, d->domain_id, fmp, fmp + np - 1);
         }
+        if ( !ret )
+            memory_type_changed(d);
     }
     break;
 
@@ -789,18 +818,25 @@ long arch_do_domctl(
     {
         struct xen_domctl_ext_vcpucontext *evc;
         struct vcpu *v;
+        struct xen_domctl_ext_vcpu_msr msr;
 
         evc = &domctl->u.ext_vcpucontext;
 
         ret = -ESRCH;
         if ( (evc->vcpu >= d->max_vcpus) ||
              ((v = d->vcpu[evc->vcpu]) == NULL) )
-            goto ext_vcpucontext_out;
+            break;
 
         if ( domctl->cmd == XEN_DOMCTL_get_ext_vcpucontext )
         {
+            if ( v == current ) /* no vcpu_pause() */
+                break;
+
             evc->size = sizeof(*evc);
-            if ( !is_hvm_domain(d) )
+
+            vcpu_pause(v);
+
+            if ( is_pv_domain(d) )
             {
                 evc->sysenter_callback_cs      =
                     v->arch.pv_vcpu.sysenter_callback_cs;
@@ -827,17 +863,59 @@ long arch_do_domctl(
             evc->vmce.caps = v->arch.vmce.mcg_cap;
             evc->vmce.mci_ctl2_bank0 = v->arch.vmce.bank[0].mci_ctl2;
             evc->vmce.mci_ctl2_bank1 = v->arch.vmce.bank[1].mci_ctl2;
+
+            i = ret = 0;
+            if ( boot_cpu_has(X86_FEATURE_DBEXT) )
+            {
+                unsigned int j;
+
+                if ( v->arch.pv_vcpu.dr_mask[0] )
+                {
+                    if ( i < evc->msr_count && !ret )
+                    {
+                        msr.index = MSR_AMD64_DR0_ADDRESS_MASK;
+                        msr.reserved = 0;
+                        msr.value = v->arch.pv_vcpu.dr_mask[0];
+                        if ( copy_to_guest_offset(evc->msrs, i, &msr, 1) )
+                            ret = -EFAULT;
+                    }
+                    ++i;
+                }
+                for ( j = 0; j < 3; ++j )
+                {
+                    if ( !v->arch.pv_vcpu.dr_mask[1 + j] )
+                        continue;
+                    if ( i < evc->msr_count && !ret )
+                    {
+                        msr.index = MSR_AMD64_DR1_ADDRESS_MASK + j;
+                        msr.reserved = 0;
+                        msr.value = v->arch.pv_vcpu.dr_mask[1 + j];
+                        if ( copy_to_guest_offset(evc->msrs, i, &msr, 1) )
+                            ret = -EFAULT;
+                    }
+                    ++i;
+                }
+            }
+            if ( i > evc->msr_count && !ret )
+                ret = -ENOBUFS;
+            evc->msr_count = i;
+
+            vcpu_unpause(v);
+            copyback = 1;
         }
         else
         {
+            if ( d == current->domain ) /* no domain_pause() */
+                break;
             ret = -EINVAL;
             if ( evc->size < offsetof(typeof(*evc), vmce) )
-                goto ext_vcpucontext_out;
-            if ( !is_hvm_domain(d) )
+                break;
+            if ( is_pv_domain(d) )
             {
                 if ( !is_canonical_address(evc->sysenter_callback_eip) ||
                      !is_canonical_address(evc->syscall32_callback_eip) )
-                    goto ext_vcpucontext_out;
+                    break;
+                domain_pause(d);
                 fixup_guest_code_selector(d, evc->sysenter_callback_cs);
                 v->arch.pv_vcpu.sysenter_callback_cs      =
                     evc->sysenter_callback_cs;
@@ -853,13 +931,13 @@ long arch_do_domctl(
                 v->arch.pv_vcpu.syscall32_disables_events =
                     evc->syscall32_disables_events;
             }
+            else if ( (evc->sysenter_callback_cs & ~3) ||
+                      evc->sysenter_callback_eip ||
+                      (evc->syscall32_callback_cs & ~3) ||
+                      evc->syscall32_callback_eip )
+                break;
             else
-            /* We do not support syscall/syscall32/sysenter on 32-bit Xen. */
-            if ( (evc->sysenter_callback_cs & ~3) ||
-                 evc->sysenter_callback_eip ||
-                 (evc->syscall32_callback_cs & ~3) ||
-                 evc->syscall32_callback_eip )
-                goto ext_vcpucontext_out;
+                domain_pause(d);
 
             BUILD_BUG_ON(offsetof(struct xen_domctl_ext_vcpucontext,
                                   mcg_cap) !=
@@ -876,28 +954,69 @@ long arch_do_domctl(
 
                 ret = vmce_restore_vcpu(v, &vmce);
             }
+            else if ( evc->size > offsetof(typeof(*evc), vmce) )
+                ret = -EINVAL;
+            else
+                ret = 0;
+
+            if ( ret || evc->size <= offsetof(typeof(*evc), msrs) )
+                /* nothing */;
+            else if ( evc->size < offsetof(typeof(*evc), msrs) +
+                                  sizeof(evc->msrs) )
+                ret = -EINVAL;
+            else
+            {
+                for ( i = 0; i < evc->msr_count; ++i )
+                {
+                    ret = -EFAULT;
+                    if ( copy_from_guest_offset(&msr, evc->msrs, i, 1) )
+                        break;
+                    ret = -EINVAL;
+                    if ( msr.reserved )
+                        break;
+                    switch ( msr.index )
+                    {
+                    case MSR_AMD64_DR0_ADDRESS_MASK:
+                        if ( !boot_cpu_has(X86_FEATURE_DBEXT) ||
+                             (msr.value >> 32) )
+                            break;
+                        v->arch.pv_vcpu.dr_mask[0] = msr.value;
+                        continue;
+                    case MSR_AMD64_DR1_ADDRESS_MASK ...
+                         MSR_AMD64_DR3_ADDRESS_MASK:
+                        if ( !boot_cpu_has(X86_FEATURE_DBEXT) ||
+                             (msr.value >> 32) )
+                            break;
+                        msr.index -= MSR_AMD64_DR1_ADDRESS_MASK - 1;
+                        v->arch.pv_vcpu.dr_mask[msr.index] = msr.value;
+                        continue;
+                    }
+                    break;
+                }
+                if ( i == evc->msr_count )
+                    ret = 0;
+            }
+
+            domain_unpause(d);
         }
-
-        ret = 0;
-
-    ext_vcpucontext_out:
-        if ( domctl->cmd == XEN_DOMCTL_get_ext_vcpucontext )
-            copyback = 1;
     }
     break;
 
     case XEN_DOMCTL_set_cpuid:
     {
         xen_domctl_cpuid_t *ctl = &domctl->u.cpuid;
-        cpuid_input_t *cpuid = NULL; 
-        int i;
+        cpuid_input_t *cpuid, *unused = NULL;
 
         for ( i = 0; i < MAX_CPUID_INPUT; i++ )
         {
             cpuid = &d->arch.cpuids[i];
 
             if ( cpuid->input[0] == XEN_CPUID_INPUT_UNUSED )
-                break;
+            {
+                if ( !unused )
+                    unused = cpuid;
+                continue;
+            }
 
             if ( (cpuid->input[0] == ctl->input[0]) &&
                  ((cpuid->input[1] == XEN_CPUID_INPUT_UNUSED) ||
@@ -905,15 +1024,12 @@ long arch_do_domctl(
                 break;
         }
         
-        if ( i == MAX_CPUID_INPUT )
-        {
-            ret = -ENOENT;
-        }
+        if ( i < MAX_CPUID_INPUT )
+            *cpuid = *ctl;
+        else if ( unused )
+            *unused = *ctl;
         else
-        {
-            memcpy(cpuid, ctl, sizeof(cpuid_input_t));
-            ret = 0;
-        }
+            ret = -ENOENT;
     }
     break;
 
@@ -1047,11 +1163,8 @@ long arch_do_domctl(
         struct xen_domctl_vcpuextstate *evc;
         struct vcpu *v;
         uint32_t offset = 0;
-        uint64_t _xfeature_mask = 0;
-        uint64_t _xcr0, _xcr0_accum;
-        void *receive_buf = NULL, *_xsave_area;
 
-#define PV_XSAVE_SIZE (2 * sizeof(uint64_t) + xsave_cntxt_size)
+#define PV_XSAVE_SIZE(xcr0) (2 * sizeof(uint64_t) + xstate_ctxt_size(xcr0))
 
         evc = &domctl->u.vcpuextstate;
 
@@ -1062,15 +1175,16 @@ long arch_do_domctl(
 
         if ( domctl->cmd == XEN_DOMCTL_getvcpuextstate )
         {
+            unsigned int size = PV_XSAVE_SIZE(v->arch.xcr0_accum);
+
             if ( !evc->size && !evc->xfeature_mask )
             {
                 evc->xfeature_mask = xfeature_mask;
-                evc->size = PV_XSAVE_SIZE;
+                evc->size = size;
                 ret = 0;
                 goto vcpuextstate_out;
             }
-            if ( evc->size != PV_XSAVE_SIZE ||
-                 evc->xfeature_mask != xfeature_mask )
+            if ( evc->size != size || evc->xfeature_mask != xfeature_mask )
             {
                 ret = -EINVAL;
                 goto vcpuextstate_out;
@@ -1093,7 +1207,7 @@ long arch_do_domctl(
             offset += sizeof(v->arch.xcr0_accum);
             if ( copy_to_guest_offset(domctl->u.vcpuextstate.buffer,
                                       offset, (void *)v->arch.xsave_area,
-                                      xsave_cntxt_size) )
+                                      size - 2 * sizeof(uint64_t)) )
             {
                 ret = -EFAULT;
                 goto vcpuextstate_out;
@@ -1101,13 +1215,14 @@ long arch_do_domctl(
         }
         else
         {
-            ret = -EINVAL;
+            void *receive_buf;
+            uint64_t _xcr0, _xcr0_accum;
+            const struct xsave_struct *_xsave_area;
 
-            _xfeature_mask = evc->xfeature_mask;
-            /* xsave context must be restored on compatible target CPUs */
-            if ( (_xfeature_mask & xfeature_mask) != _xfeature_mask )
-                goto vcpuextstate_out;
-            if ( evc->size > PV_XSAVE_SIZE || evc->size < 2 * sizeof(uint64_t) )
+            ret = -EINVAL;
+            if ( evc->size < 2 * sizeof(uint64_t) ||
+                 evc->size > 2 * sizeof(uint64_t) +
+                             xstate_ctxt_size(xfeature_mask) )
                 goto vcpuextstate_out;
 
             receive_buf = xmalloc_bytes(evc->size);
@@ -1128,20 +1243,32 @@ long arch_do_domctl(
             _xcr0_accum = *(uint64_t *)(receive_buf + sizeof(uint64_t));
             _xsave_area = receive_buf + 2 * sizeof(uint64_t);
 
-            if ( !(_xcr0 & XSTATE_FP) || _xcr0 & ~xfeature_mask )
+            if ( _xcr0_accum )
             {
-                xfree(receive_buf);
-                goto vcpuextstate_out;
+                if ( evc->size >= 2 * sizeof(uint64_t) + XSTATE_AREA_MIN_SIZE )
+                    ret = validate_xstate(_xcr0, _xcr0_accum,
+                                          _xsave_area->xsave_hdr.xstate_bv,
+                                          evc->xfeature_mask);
             }
-            if ( (_xcr0 & _xcr0_accum) != _xcr0 )
+            else if ( !_xcr0 )
+                ret = 0;
+            if ( ret )
             {
                 xfree(receive_buf);
                 goto vcpuextstate_out;
             }
 
-            v->arch.xcr0 = _xcr0;
-            v->arch.xcr0_accum = _xcr0_accum;
-            memcpy(v->arch.xsave_area, _xsave_area, evc->size - 2 * sizeof(uint64_t) );
+            if ( evc->size <= PV_XSAVE_SIZE(_xcr0_accum) )
+            {
+                v->arch.xcr0 = _xcr0;
+                v->arch.xcr0_accum = _xcr0_accum;
+                if ( _xcr0_accum & XSTATE_NONLAZY )
+                    v->arch.nonlazy_xstate_used = 1;
+                memcpy(v->arch.xsave_area, _xsave_area,
+                       evc->size - 2 * sizeof(uint64_t));
+            }
+            else
+                ret = -EINVAL;
 
             xfree(receive_buf);
         }
@@ -1206,9 +1333,10 @@ long arch_do_domctl(
         unsigned long pfn = domctl->u.set_broken_page_p2m.pfn;
         mfn_t mfn = get_gfn_query(d, pfn, &pt);
 
-        if ( unlikely(!mfn_valid(mfn_x(mfn)) || !p2m_is_ram(pt) ||
-                     (p2m_change_type(d, pfn, pt, p2m_ram_broken) != pt)) )
+        if ( unlikely(!mfn_valid(mfn_x(mfn))) || unlikely(!p2m_is_ram(pt)) )
             ret = -EINVAL;
+        else
+            ret = p2m_change_type_one(d, pfn, pt, p2m_ram_broken);
 
         put_gfn(d, pfn);
     }
@@ -1237,7 +1365,7 @@ void arch_get_info_guest(struct vcpu *v, vcpu_guest_context_u c)
     bool_t compat = is_pv_32on64_domain(v->domain);
 #define c(fld) (!compat ? (c.nat->fld) : (c.cmp->fld))
 
-    if ( is_hvm_vcpu(v) )
+    if ( !is_pv_vcpu(v) )
         memset(c.nat, 0, sizeof(*c.nat));
     memcpy(&c.nat->fpu_ctxt, v->arch.fpu_ctxt, sizeof(c.nat->fpu_ctxt));
     c(flags = v->arch.vgc_flags & ~(VGCF_i387_valid|VGCF_in_kernel));
@@ -1248,7 +1376,7 @@ void arch_get_info_guest(struct vcpu *v, vcpu_guest_context_u c)
     if ( !compat )
     {
         memcpy(&c.nat->user_regs, &v->arch.user_regs, sizeof(c.nat->user_regs));
-        if ( !is_hvm_vcpu(v) )
+        if ( is_pv_vcpu(v) )
             memcpy(c.nat->trap_ctxt, v->arch.pv_vcpu.trap_ctxt,
                    sizeof(c.nat->trap_ctxt));
     }
@@ -1263,7 +1391,7 @@ void arch_get_info_guest(struct vcpu *v, vcpu_guest_context_u c)
     for ( i = 0; i < ARRAY_SIZE(v->arch.debugreg); ++i )
         c(debugreg[i] = v->arch.debugreg[i]);
 
-    if ( is_hvm_vcpu(v) )
+    if ( has_hvm_container_vcpu(v) )
     {
         struct segment_register sreg;
 

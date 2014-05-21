@@ -678,11 +678,11 @@ static void core2_vpmu_do_cpuid(unsigned int input,
 }
 
 /* Dump vpmu info on console, called in the context of keyhandler 'q'. */
-static void core2_vpmu_dump(struct vcpu *v)
+static void core2_vpmu_dump(const struct vcpu *v)
 {
-    struct vpmu_struct *vpmu = vcpu_vpmu(v);
+    const struct vpmu_struct *vpmu = vcpu_vpmu(v);
     int i, num;
-    struct core2_vpmu_context *core2_vpmu_cxt = NULL;
+    const struct core2_vpmu_context *core2_vpmu_cxt = NULL;
     u64 val;
 
     if ( !vpmu_is_set(vpmu, VPMU_CONTEXT_ALLOCATED) )
@@ -690,7 +690,7 @@ static void core2_vpmu_dump(struct vcpu *v)
 
     if ( !vpmu_is_set(vpmu, VPMU_RUNNING) )
     {
-        if ( vpmu_set(vpmu, VPMU_CONTEXT_LOADED) )
+        if ( vpmu_is_set(vpmu, VPMU_CONTEXT_LOADED) )
             printk("    vPMU loaded\n");
         else
             printk("    vPMU allocated\n");
@@ -703,10 +703,11 @@ static void core2_vpmu_dump(struct vcpu *v)
     /* Print the contents of the counter and its configuration msr. */
     for ( i = 0; i < num; i++ )
     {
-        struct arch_msr_pair* msr_pair = core2_vpmu_cxt->arch_msr_pair;
+        const struct arch_msr_pair *msr_pair = core2_vpmu_cxt->arch_msr_pair;
+
         if ( core2_vpmu_cxt->pmu_enable->arch_pmc_enable[i] )
             printk("      general_%d: 0x%016lx ctrl: 0x%016lx\n",
-                             i, msr_pair[i].counter, msr_pair[i].control);
+                   i, msr_pair[i].counter, msr_pair[i].control);
     }
     /*
      * The configuration of the fixed counter is 4 bits each in the
@@ -716,9 +717,9 @@ static void core2_vpmu_dump(struct vcpu *v)
     for ( i = 0; i < core2_fix_counters.num; i++ )
     {
         if ( core2_vpmu_cxt->pmu_enable->fixed_ctr_enable[i] )
-            printk("      fixed_%d:   0x%016lx ctrl: 0x%lx\n",
-                             i, core2_vpmu_cxt->fix_counters[i],
-                             val & FIXED_CTR_CTRL_MASK);
+            printk("      fixed_%d:   0x%016lx ctrl: %#lx\n",
+                   i, core2_vpmu_cxt->fix_counters[i],
+                   val & FIXED_CTR_CTRL_MASK);
         val >>= FIXED_CTR_CTRL_BITS;
     }
 }
@@ -742,7 +743,7 @@ static int core2_vpmu_do_interrupt(struct cpu_user_regs *regs)
     else
     {
         /* No PMC overflow but perhaps a Trace Message interrupt. */
-        msr_content = __vmread(GUEST_IA32_DEBUGCTL);
+        __vmread(GUEST_IA32_DEBUGCTL, &msr_content);
         if ( !(msr_content & IA32_DEBUGCTLMSR_TR) )
             return 0;
     }
@@ -768,8 +769,8 @@ static int core2_vpmu_initialise(struct vcpu *v, unsigned int vpmu_flags)
         if ( !cpu_has(c, X86_FEATURE_DTES64) )
         {
             printk(XENLOG_G_WARNING "CPU doesn't support 64-bit DS Area"
-                   " - Debug Store disabled for d%d:v%d\n",
-                   v->domain->domain_id, v->vcpu_id);
+                   " - Debug Store disabled for %pv\n",
+                   v);
             goto func_out;
         }
         vpmu_set(vpmu, VPMU_CPU_HAS_DS);
@@ -779,8 +780,8 @@ static int core2_vpmu_initialise(struct vcpu *v, unsigned int vpmu_flags)
             /* If BTS_UNAVAIL is set reset the DS feature. */
             vpmu_reset(vpmu, VPMU_CPU_HAS_DS);
             printk(XENLOG_G_WARNING "CPU has set BTS_UNAVAIL"
-                   " - Debug Store disabled for d%d:v%d\n",
-                   v->domain->domain_id, v->vcpu_id);
+                   " - Debug Store disabled for %pv\n",
+                   v);
         }
         else
         {
@@ -909,7 +910,16 @@ int vmx_vpmu_initialise(struct vcpu *v, unsigned int vpmu_flags)
 
         case 0x3a: /* IvyBridge */
         case 0x3e: /* IvyBridge EP */
-        case 0x3c: /* Haswell */
+
+        /* Haswell: */
+        case 0x3c:
+        case 0x3f:
+        case 0x45:
+        case 0x46:
+
+        /* future: */
+        case 0x3d:
+        case 0x4e:
             ret = core2_vpmu_initialise(v, vpmu_flags);
             if ( !ret )
                 vpmu->arch_vpmu_ops = &core2_vpmu_ops;

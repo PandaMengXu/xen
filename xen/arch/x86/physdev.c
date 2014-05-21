@@ -310,10 +310,9 @@ ret_t do_physdev_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
             spin_unlock(&v->domain->event_lock);
             break;
         }
-        if ( !is_hvm_domain(v->domain) &&
-             v->domain->arch.pv_domain.auto_unmask )
+        if ( v->domain->arch.auto_unmask )
             evtchn_unmask(pirq->evtchn);
-        if ( !is_hvm_domain(v->domain) ||
+        if ( is_pv_domain(v->domain) ||
              domain_pirq_to_irq(v->domain, eoi.irq) > 0 )
             pirq_guest_eoi(pirq);
         if ( is_hvm_domain(v->domain) &&
@@ -354,7 +353,7 @@ ret_t do_physdev_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
         }
         mfn = page_to_mfn(page);
 
-        if ( cmpxchg(&v->domain->arch.pv_domain.pirq_eoi_map_mfn,
+        if ( cmpxchg(&v->domain->arch.pirq_eoi_map_mfn,
                      0, mfn) != 0 )
         {
             put_page_and_type(mfn_to_page(mfn));
@@ -362,16 +361,16 @@ ret_t do_physdev_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
             break;
         }
 
-        v->domain->arch.pv_domain.pirq_eoi_map = map_domain_page_global(mfn);
-        if ( v->domain->arch.pv_domain.pirq_eoi_map == NULL )
+        v->domain->arch.pirq_eoi_map = map_domain_page_global(mfn);
+        if ( v->domain->arch.pirq_eoi_map == NULL )
         {
-            v->domain->arch.pv_domain.pirq_eoi_map_mfn = 0;
+            v->domain->arch.pirq_eoi_map_mfn = 0;
             put_page_and_type(mfn_to_page(mfn));
             ret = -ENOSPC;
             break;
         }
         if ( cmd == PHYSDEVOP_pirq_eoi_gmfn_v1 )
-            v->domain->arch.pv_domain.auto_unmask = 1;
+            v->domain->arch.auto_unmask = 1;
 
         ret = 0;
         break;
@@ -519,6 +518,11 @@ ret_t do_physdev_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
 
     case PHYSDEVOP_set_iopl: {
         struct physdev_set_iopl set_iopl;
+
+        ret = -ENOSYS;
+        if ( is_pvh_vcpu(current) )
+            break;
+
         ret = -EFAULT;
         if ( copy_from_guest(&set_iopl, arg, 1) != 0 )
             break;
@@ -532,6 +536,11 @@ ret_t do_physdev_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
 
     case PHYSDEVOP_set_iobitmap: {
         struct physdev_set_iobitmap set_iobitmap;
+
+        ret = -ENOSYS;
+        if ( is_pvh_vcpu(current) )
+            break;
+
         ret = -EFAULT;
         if ( copy_from_guest(&set_iobitmap, arg, 1) != 0 )
             break;
@@ -630,7 +639,10 @@ ret_t do_physdev_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
         if ( copy_from_guest(&dev, arg, 1) )
             ret = -EFAULT;
         else
-            ret = pci_prepare_msix(dev.seg, dev.bus, dev.devfn,
+            ret = xsm_resource_setup_pci(XSM_PRIV,
+                                         (dev.seg << 16) | (dev.bus << 8) |
+                                         dev.devfn) ?:
+                  pci_prepare_msix(dev.seg, dev.bus, dev.devfn,
                                    cmd != PHYSDEVOP_prepare_msix);
         break;
     }

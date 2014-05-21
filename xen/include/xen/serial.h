@@ -70,8 +70,9 @@ struct uart_driver {
     /* Driver suspend/resume. */
     void (*suspend)(struct serial_port *);
     void (*resume)(struct serial_port *);
-    /* Return number of characters the port can hold for transmit. */
-    unsigned int (*tx_ready)(struct serial_port *);
+    /* Return number of characters the port can hold for transmit,
+     * or -EIO if port is inaccesible */
+    int (*tx_ready)(struct serial_port *);
     /* Put a character onto the serial line. */
     void (*putc)(struct serial_port *, char);
     /* Flush accumulated characters. */
@@ -80,8 +81,6 @@ struct uart_driver {
     int  (*getc)(struct serial_port *, char *);
     /* Get IRQ number for this port's serial line: returns -1 if none. */
     int  (*irq)(struct serial_port *);
-    /* Get IRQ device node for this port's serial line: returns NULL if none. */
-    const struct dt_irq *(*dt_irq_get)(struct serial_port *);
     /* Get serial information */
     const struct vuart_info *(*vuart_info)(struct serial_port *);
 };
@@ -133,9 +132,6 @@ void serial_end_log_everything(int handle);
 
 /* Return irq number for specified serial port (identified by index). */
 int serial_irq(int idx);
-
-/* Return irq device node for specified serial port (identified by index). */
-const struct dt_irq *serial_dt_irq(int idx);
 
 /* Retrieve basic UART information to emulate it (base address, size...) */
 const struct vuart_info* serial_vuart_info(int idx);

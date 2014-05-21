@@ -8,7 +8,7 @@
  *  Tigran Aivazian <tigran@aivazian.fsnet.co.uk>
  *
  *  This driver allows to upgrade microcode on AMD
- *  family 0x10 and 0x11 processors.
+ *  family 0x10 and later.
  *
  *  Licensed unter the terms of the GNU General Public
  *  License version 2. See file COPYING for details.
@@ -27,15 +27,17 @@
 #include <asm/microcode.h>
 #include <asm/hvm/svm/svm.h>
 
-struct equiv_cpu_entry {
+#define pr_debug(x...) ((void)0)
+
+struct __packed equiv_cpu_entry {
     uint32_t installed_cpu;
     uint32_t fixed_errata_mask;
     uint32_t fixed_errata_compare;
     uint16_t equiv_cpu;
     uint16_t reserved;
-} __attribute__((packed));
+};
 
-struct microcode_header_amd {
+struct __packed microcode_header_amd {
     uint32_t data_code;
     uint32_t patch_id;
     uint8_t  mc_patch_data_id[2];
@@ -50,7 +52,7 @@ struct microcode_header_amd {
     uint8_t  bios_api_rev;
     uint8_t  reserved1[3];
     uint32_t match_reg[8];
-} __attribute__((packed));
+};
 
 #define UCODE_MAGIC                0x00414d44
 #define UCODE_EQUIV_CPU_TABLE_TYPE 0x00000000
@@ -88,10 +90,38 @@ static int collect_cpu_info(int cpu, struct cpu_signature *csig)
 
     rdmsrl(MSR_AMD_PATCHLEVEL, csig->rev);
 
-    printk(KERN_DEBUG "microcode: CPU%d collect_cpu_info: patch_id=%#x\n",
-           cpu, csig->rev);
+    pr_debug("microcode: CPU%d collect_cpu_info: patch_id=%#x\n",
+             cpu, csig->rev);
 
     return 0;
+}
+
+static bool_t verify_patch_size(uint32_t patch_size)
+{
+    uint32_t max_size;
+
+#define F1XH_MPB_MAX_SIZE 2048
+#define F14H_MPB_MAX_SIZE 1824
+#define F15H_MPB_MAX_SIZE 4096
+#define F16H_MPB_MAX_SIZE 3458
+
+    switch (boot_cpu_data.x86)
+    {
+    case 0x14:
+        max_size = F14H_MPB_MAX_SIZE;
+        break;
+    case 0x15:
+        max_size = F15H_MPB_MAX_SIZE;
+        break;
+    case 0x16:
+        max_size = F16H_MPB_MAX_SIZE;
+        break;
+    default:
+        max_size = F1XH_MPB_MAX_SIZE;
+        break;
+    }
+
+    return (patch_size <= max_size);
 }
 
 static bool_t microcode_fits(const struct microcode_amd *mc_amd, int cpu)
@@ -123,12 +153,20 @@ static bool_t microcode_fits(const struct microcode_amd *mc_amd, int cpu)
     if ( (mc_header->processor_rev_id) != equiv_cpu_id )
         return 0;
 
-    if ( mc_header->patch_id <= uci->cpu_sig.rev )
+    if ( !verify_patch_size(mc_amd->mpb_size) )
+    {
+        pr_debug("microcode: patch size mismatch\n");
         return 0;
+    }
 
-    printk(KERN_DEBUG "microcode: CPU%d found a matching microcode "
-           "update with version %#x (current=%#x)\n",
-           cpu, mc_header->patch_id, uci->cpu_sig.rev);
+    if ( mc_header->patch_id <= uci->cpu_sig.rev )
+    {
+        pr_debug("microcode: patch is already at required level or greater.\n");
+        return 0;
+    }
+
+    pr_debug("microcode: CPU%d found a matching microcode update with version %#x (current=%#x)\n",
+             cpu, mc_header->patch_id, uci->cpu_sig.rev);
 
     return 1;
 }
@@ -224,10 +262,10 @@ static int get_ucode_from_buffer_amd(
 
     *offset = off + mpbuf->len + 8;
 
-    printk(KERN_DEBUG "microcode: CPU%d size %zu, block size %u offset %zu equivID %#x rev %#x\n",
-           raw_smp_processor_id(), bufsize, mpbuf->len, off,
-           ((struct microcode_header_amd *)mc_amd->mpb)->processor_rev_id,
-           ((struct microcode_header_amd *)mc_amd->mpb)->patch_id);
+    pr_debug("microcode: CPU%d size %zu, block size %u offset %zu equivID %#x rev %#x\n",
+             raw_smp_processor_id(), bufsize, mpbuf->len, off,
+             ((struct microcode_header_amd *)mc_amd->mpb)->processor_rev_id,
+             ((struct microcode_header_amd *)mc_amd->mpb)->patch_id);
 
     return 0;
 }
@@ -275,7 +313,7 @@ static int cpu_request_microcode(int cpu, const void *buf, size_t bufsize)
     struct microcode_amd *mc_amd, *mc_old;
     size_t offset = bufsize;
     size_t last_offset, applied_offset = 0;
-    int error = 0;
+    int error = 0, save_error = 1;
     struct ucode_cpu_info *uci = &per_cpu(ucode_cpu_info, cpu);
 
     /* We should bind the task to the CPU */
@@ -338,19 +376,20 @@ static int cpu_request_microcode(int cpu, const void *buf, size_t bufsize)
      */
     if ( applied_offset )
     {
-        int ret = get_ucode_from_buffer_amd(mc_amd, buf, bufsize,
-                                            &applied_offset);
-        if ( ret == 0 )
-            xfree(mc_old);
-        else
-            error = ret;
+        save_error = get_ucode_from_buffer_amd(
+            mc_amd, buf, bufsize, &applied_offset);
+
+        if ( save_error )
+            error = save_error;
     }
 
-    if ( !applied_offset || error )
+    if ( save_error )
     {
         xfree(mc_amd);
         uci->mc.mc_amd = mc_old;
     }
+    else
+        xfree(mc_old);
 
   out:
     svm_host_osvw_init();

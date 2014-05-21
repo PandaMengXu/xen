@@ -21,7 +21,7 @@ bool_t __read_mostly cpu_has_xsaveopt;
  * the supported and enabled features on the processor, including the
  * XSAVE.HEADER. We only enable XCNTXT_MASK that we have known.
  */
-u32 xsave_cntxt_size;
+static u32 __read_mostly xsave_cntxt_size;
 
 /* A 64-bit bitmask of the XSAVE/XRSTOR features supported by processor. */
 u64 xfeature_mask;
@@ -206,13 +206,13 @@ void xrstor(struct vcpu *v, uint64_t mask)
 
 bool_t xsave_enabled(const struct vcpu *v)
 {
-    if ( cpu_has_xsave )
-    {
-        ASSERT(xsave_cntxt_size >= XSTATE_AREA_MIN_SIZE);
-        ASSERT(v->arch.xsave_area);
-    }
+    if ( !cpu_has_xsave )
+        return 0;
 
-    return cpu_has_xsave;	
+    ASSERT(xsave_cntxt_size >= XSTATE_AREA_MIN_SIZE);
+    ASSERT(v->arch.xsave_area);
+
+    return !!v->arch.xcr0_accum;
 }
 
 int xstate_alloc_save_area(struct vcpu *v)
@@ -238,8 +238,8 @@ int xstate_alloc_save_area(struct vcpu *v)
     save_area->fpu_sse.mxcsr = MXCSR_DEFAULT;
 
     v->arch.xsave_area = save_area;
-    v->arch.xcr0 = XSTATE_FP_SSE;
-    v->arch.xcr0_accum = XSTATE_FP_SSE;
+    v->arch.xcr0 = 0;
+    v->arch.xcr0_accum = 0;
 
     return 0;
 }
@@ -251,75 +251,150 @@ void xstate_free_save_area(struct vcpu *v)
 }
 
 /* Collect the information of processor's extended state */
-void xstate_init(void)
+void xstate_init(bool_t bsp)
 {
     u32 eax, ebx, ecx, edx;
-    int cpu = smp_processor_id();
-    u32 min_size;
+    u64 feature_mask;
 
     if ( boot_cpu_data.cpuid_level < XSTATE_CPUID )
+    {
+        BUG_ON(!bsp);
+        setup_clear_cpu_cap(X86_FEATURE_XSAVE);
         return;
+    }
 
     cpuid_count(XSTATE_CPUID, 0, &eax, &ebx, &ecx, &edx);
 
     BUG_ON((eax & XSTATE_FP_SSE) != XSTATE_FP_SSE);
     BUG_ON((eax & XSTATE_YMM) && !(eax & XSTATE_SSE));
-
-    /* FP/SSE, XSAVE.HEADER, YMM */
-    min_size =  XSTATE_AREA_MIN_SIZE;
-    if ( eax & XSTATE_YMM )
-        min_size += XSTATE_YMM_SIZE;
-    BUG_ON(ecx < min_size);
+    feature_mask = (((u64)edx << 32) | eax) & XCNTXT_MASK;
 
     /*
      * Set CR4_OSXSAVE and run "cpuid" to get xsave_cntxt_size.
      */
     set_in_cr4(X86_CR4_OSXSAVE);
-    if ( !set_xcr0((((u64)edx << 32) | eax) & XCNTXT_MASK) )
+    if ( !set_xcr0(feature_mask) )
         BUG();
-    cpuid_count(XSTATE_CPUID, 0, &eax, &ebx, &ecx, &edx);
 
-    if ( cpu == 0 )
+    if ( bsp )
     {
+        xfeature_mask = feature_mask;
         /*
          * xsave_cntxt_size is the max size required by enabled features.
          * We know FP/SSE and YMM about eax, and nothing about edx at present.
          */
-        xsave_cntxt_size = ebx;
-        xfeature_mask = eax + ((u64)edx << 32);
-        xfeature_mask &= XCNTXT_MASK;
+        xsave_cntxt_size = xstate_ctxt_size(feature_mask);
         printk("%s: using cntxt_size: %#x and states: %#"PRIx64"\n",
             __func__, xsave_cntxt_size, xfeature_mask);
-
-        /* Check XSAVEOPT feature. */
-        cpuid_count(XSTATE_CPUID, 1, &eax, &ebx, &ecx, &edx);
-        cpu_has_xsaveopt = !!(eax & XSTATE_FEATURE_XSAVEOPT);
     }
     else
     {
-        BUG_ON(xsave_cntxt_size != ebx);
-        BUG_ON(xfeature_mask != (xfeature_mask & XCNTXT_MASK));
+        BUG_ON(xfeature_mask != feature_mask);
+        BUG_ON(xsave_cntxt_size != xstate_ctxt_size(feature_mask));
     }
+
+    /* Check XSAVEOPT feature. */
+    cpuid_count(XSTATE_CPUID, 1, &eax, &ebx, &ecx, &edx);
+    if ( bsp )
+        cpu_has_xsaveopt = !!(eax & XSTATE_FEATURE_XSAVEOPT);
+    else
+        BUG_ON(!cpu_has_xsaveopt != !(eax & XSTATE_FEATURE_XSAVEOPT));
+}
+
+unsigned int xstate_ctxt_size(u64 xcr0)
+{
+    u32 ebx = 0;
+
+    if ( xcr0 )
+    {
+        u64 act_xcr0 = get_xcr0();
+        u32 eax, ecx, edx;
+        bool_t ok = set_xcr0(xcr0);
+
+        ASSERT(ok);
+        cpuid_count(XSTATE_CPUID, 0, &eax, &ebx, &ecx, &edx);
+        ASSERT(ebx <= ecx);
+        ok = set_xcr0(act_xcr0);
+        ASSERT(ok);
+    }
+
+    return ebx;
+}
+
+static bool_t valid_xcr0(u64 xcr0)
+{
+    /* FP must be unconditionally set. */
+    if ( !(xcr0 & XSTATE_FP) )
+        return 0;
+
+    /* YMM depends on SSE. */
+    if ( (xcr0 & XSTATE_YMM) && !(xcr0 & XSTATE_SSE) )
+        return 0;
+
+    if ( xcr0 & (XSTATE_OPMASK | XSTATE_ZMM | XSTATE_HI_ZMM) )
+    {
+        /* OPMASK, ZMM, and HI_ZMM require YMM. */
+        if ( !(xcr0 & XSTATE_YMM) )
+            return 0;
+
+        /* OPMASK, ZMM, and HI_ZMM must be the same. */
+        if ( ~xcr0 & (XSTATE_OPMASK | XSTATE_ZMM | XSTATE_HI_ZMM) )
+            return 0;
+    }
+
+    /* BNDREGS and BNDCSR must be the same. */
+    return !(xcr0 & XSTATE_BNDREGS) == !(xcr0 & XSTATE_BNDCSR);
+}
+
+int validate_xstate(u64 xcr0, u64 xcr0_accum, u64 xstate_bv, u64 xfeat_mask)
+{
+    if ( (xcr0_accum & ~xfeat_mask) ||
+         (xstate_bv & ~xcr0_accum) ||
+         (xcr0 & ~xcr0_accum) ||
+         !valid_xcr0(xcr0) ||
+         !valid_xcr0(xcr0_accum) )
+        return -EINVAL;
+
+    if ( xcr0_accum & ~xfeature_mask )
+        return -EOPNOTSUPP;
+
+    return 0;
 }
 
 int handle_xsetbv(u32 index, u64 new_bv)
 {
     struct vcpu *curr = current;
+    u64 mask;
 
     if ( index != XCR_XFEATURE_ENABLED_MASK )
         return -EOPNOTSUPP;
 
-    if ( (new_bv & ~xfeature_mask) || !(new_bv & XSTATE_FP) )
-        return -EINVAL;
-
-    if ( (new_bv & XSTATE_YMM) && !(new_bv & XSTATE_SSE) )
+    if ( (new_bv & ~xfeature_mask) || !valid_xcr0(new_bv) )
         return -EINVAL;
 
     if ( !set_xcr0(new_bv) )
         return -EFAULT;
 
+    mask = new_bv & ~curr->arch.xcr0_accum;
     curr->arch.xcr0 = new_bv;
     curr->arch.xcr0_accum |= new_bv;
+
+    /* LWP sets nonlazy_xstate_used independently. */
+    if ( new_bv & (XSTATE_NONLAZY & ~XSTATE_LWP) )
+        curr->arch.nonlazy_xstate_used = 1;
+
+    mask &= curr->fpu_dirtied ? ~XSTATE_FP_SSE : XSTATE_NONLAZY;
+    if ( mask )
+    {
+        unsigned long cr0 = read_cr0();
+
+        clts();
+        if ( curr->fpu_dirtied )
+            asm ( "stmxcsr %0" : "=m" (curr->arch.xsave_area->fpu_sse.mxcsr) );
+        xrstor(curr, mask);
+        if ( cr0 & X86_CR0_TS )
+            write_cr0(cr0);
+    }
 
     return 0;
 }

@@ -120,10 +120,6 @@ typedef uint64_t l4_pgentry_64_t;
 #define PAGE_SIZE_X86           (1UL << PAGE_SHIFT_X86)
 #define PAGE_MASK_X86           (~(PAGE_SIZE_X86-1))
 
-#define PAGE_SHIFT_IA64         14
-#define PAGE_SIZE_IA64          (1UL << PAGE_SHIFT_IA64)
-#define PAGE_MASK_IA64          (~(PAGE_SIZE_IA64-1))
-
 #define ROUNDUP(_x,_w) (((unsigned long)(_x)+(1UL<<(_w))-1) & ~((1UL<<(_w))-1))
 #define NRPAGES(x) (ROUNDUP(x, PAGE_SHIFT) >> PAGE_SHIFT)
 
@@ -135,6 +131,15 @@ struct domain_info_context {
     unsigned int guest_width;
     unsigned long p2m_size;
 };
+
+static inline xen_pfn_t pfn_to_mfn(xen_pfn_t pfn, xen_pfn_t *p2m, int gwidth)
+{
+  return ((xen_pfn_t) ((gwidth==8)?
+                       (((uint64_t *)p2m)[(pfn)]):
+                       ((((uint32_t *)p2m)[(pfn)]) == 0xffffffffU ?
+                            (-1UL) :
+                            (((uint32_t *)p2m)[(pfn)]))));
+}
 
 /* Number of xen_pfn_t in a page */
 #define FPP             (PAGE_SIZE/(dinfo->guest_width))

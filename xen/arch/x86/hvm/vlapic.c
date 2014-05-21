@@ -37,14 +37,12 @@
 #include <asm/hvm/io.h>
 #include <asm/hvm/support.h>
 #include <asm/hvm/vmx/vmx.h>
+#include <asm/hvm/nestedhvm.h>
 #include <public/hvm/ioreq.h>
 #include <public/hvm/params.h>
 
 #define VLAPIC_VERSION                  0x00050014
 #define VLAPIC_LVT_NUM                  6
-
-/* vlapic's frequence is 100 MHz */
-#define APIC_BUS_CYCLE_NS               10
 
 #define LVT_MASK \
     APIC_LVT_MASKED | APIC_SEND_PENDING | APIC_VECTOR_MASK
@@ -165,6 +163,14 @@ static uint32_t vlapic_get_ppr(struct vlapic *vlapic)
                 vlapic, ppr, isr, isrv);
 
     return ppr;
+}
+
+uint32_t vlapic_set_ppr(struct vlapic *vlapic)
+{
+   uint32_t ppr = vlapic_get_ppr(vlapic);
+
+   vlapic_set_reg(vlapic, APIC_PROCPRI, ppr);
+   return ppr;
 }
 
 static int vlapic_match_logical_addr(struct vlapic *vlapic, uint8_t mda)
@@ -605,6 +611,7 @@ int hvm_x2apic_msr_read(struct vcpu *v, unsigned int msr, uint64_t *msr_content)
 
 static void vlapic_pt_cb(struct vcpu *v, void *data)
 {
+    TRACE_0D(TRC_HVM_EMUL_LAPIC_TIMER_CB);
     *(s_time_t *)data = hvm_get_guest_time(v);
 }
 
@@ -706,6 +713,7 @@ static int vlapic_reg_write(struct vcpu *v,
         if ( (vlapic_get_reg(vlapic, offset) & APIC_TIMER_MODE_MASK) !=
              (val & APIC_TIMER_MODE_MASK) )
         {
+            TRACE_0D(TRC_HVM_EMUL_LAPIC_STOP_TIMER);
             destroy_periodic_time(&vlapic->pt);
             vlapic_set_reg(vlapic, APIC_TMICT, 0);
             vlapic_set_reg(vlapic, APIC_TMCCT, 0);
@@ -740,12 +748,16 @@ static int vlapic_reg_write(struct vcpu *v,
         vlapic_set_reg(vlapic, APIC_TMICT, val);
         if ( val == 0 )
         {
+            TRACE_0D(TRC_HVM_EMUL_LAPIC_STOP_TIMER);
             destroy_periodic_time(&vlapic->pt);
             break;
         }
 
         period = ((uint64_t)APIC_BUS_CYCLE_NS *
                   (uint32_t)val * vlapic->hw.timer_divisor);
+        TRACE_2_LONG_3D(TRC_HVM_EMUL_LAPIC_START_TIMER, TRC_PAR_LONG(period),
+                 TRC_PAR_LONG(vlapic_lvtt_period(vlapic) ? period : 0LL),
+                 vlapic->pt.irq);
         create_periodic_time(current, &vlapic->pt, period, 
                              vlapic_lvtt_period(vlapic) ? period : 0,
                              vlapic->pt.irq,
@@ -859,6 +871,7 @@ int hvm_x2apic_msr_write(struct vcpu *v, unsigned int msr, uint64_t msr_content)
         rc = vlapic_reg_write(v, APIC_ICR2, (uint32_t)(msr_content >> 32));
         if ( rc )
             return rc;
+        break;
 
     case APIC_ICR2:
         return X86EMUL_UNHANDLEABLE;
@@ -943,6 +956,8 @@ void vlapic_tdt_msr_set(struct vlapic *vlapic, uint64_t value)
 
         vlapic->hw.tdt_msr = value;
         /* .... reprogram tdt timer */
+        TRACE_2_LONG_3D(TRC_HVM_EMUL_LAPIC_START_TIMER, TRC_PAR_LONG(delta),
+                        TRC_PAR_LONG(0LL), vlapic->pt.irq);
         create_periodic_time(v, &vlapic->pt, delta, 0,
                              vlapic->pt.irq, vlapic_tdt_pt_cb,
                              &vlapic->timer_last_update);
@@ -955,6 +970,8 @@ void vlapic_tdt_msr_set(struct vlapic *vlapic, uint64_t value)
         /* trigger a timer event if needed */
         if ( value > 0 )
         {
+            TRACE_2_LONG_3D(TRC_HVM_EMUL_LAPIC_START_TIMER, TRC_PAR_LONG(0LL),
+                            TRC_PAR_LONG(0LL), vlapic->pt.irq);
             create_periodic_time(v, &vlapic->pt, 0, 0,
                                  vlapic->pt.irq, vlapic_tdt_pt_cb,
                                  &vlapic->timer_last_update);
@@ -963,6 +980,7 @@ void vlapic_tdt_msr_set(struct vlapic *vlapic, uint64_t value)
         else
         {
             /* .... stop tdt timer */
+            TRACE_0D(TRC_HVM_EMUL_LAPIC_STOP_TIMER);
             destroy_periodic_time(&vlapic->pt);
         }
 
@@ -996,6 +1014,10 @@ static int __vlapic_accept_pic_intr(struct vcpu *v)
 
 int vlapic_accept_pic_intr(struct vcpu *v)
 {
+    TRACE_2D(TRC_HVM_EMUL_LAPIC_PIC_INTR,
+             (v == v->domain->arch.hvm_domain.i8259_target),
+             v ? __vlapic_accept_pic_intr(v) : -1);
+
     return ((v == v->domain->arch.hvm_domain.i8259_target) &&
             __vlapic_accept_pic_intr(v));
 }
@@ -1037,7 +1059,8 @@ int vlapic_has_pending_irq(struct vcpu *v)
     if ( irr == -1 )
         return -1;
 
-    if ( vlapic_virtual_intr_delivery_enabled() )
+    if ( vlapic_virtual_intr_delivery_enabled() &&
+         !nestedhvm_vcpu_in_guestmode(v) )
         return irr;
 
     isr = vlapic_find_highest_isr(vlapic);
@@ -1048,15 +1071,15 @@ int vlapic_has_pending_irq(struct vcpu *v)
     return irr;
 }
 
-int vlapic_ack_pending_irq(struct vcpu *v, int vector)
+int vlapic_ack_pending_irq(struct vcpu *v, int vector, bool_t force_ack)
 {
     struct vlapic *vlapic = vcpu_vlapic(v);
 
-    if ( vlapic_virtual_intr_delivery_enabled() )
-        return 1;
-
-    vlapic_set_vector(vector, &vlapic->regs->data[APIC_ISR]);
-    vlapic_clear_irr(vector, vlapic);
+    if ( force_ack || !vlapic_virtual_intr_delivery_enabled() )
+    {
+        vlapic_set_vector(vector, &vlapic->regs->data[APIC_ISR]);
+        vlapic_clear_irr(vector, vlapic);
+    }
 
     return 1;
 }
@@ -1098,6 +1121,7 @@ void vlapic_reset(struct vlapic *vlapic)
     vlapic_set_reg(vlapic, APIC_SPIV, 0xff);
     vlapic->hw.disabled |= VLAPIC_SW_DISABLED;
 
+    TRACE_0D(TRC_HVM_EMUL_LAPIC_STOP_TIMER);
     destroy_periodic_time(&vlapic->pt);
 }
 
@@ -1121,6 +1145,8 @@ static void lapic_rearm(struct vlapic *s)
 
     period = ((uint64_t)APIC_BUS_CYCLE_NS *
               (uint32_t)tmict * s->hw.timer_divisor);
+    TRACE_2_LONG_3D(TRC_HVM_EMUL_LAPIC_START_TIMER, TRC_PAR_LONG(period),
+             TRC_PAR_LONG(vlapic_lvtt_period(s) ? period : 0LL), s->pt.irq);
     create_periodic_time(vlapic_vcpu(s), &s->pt, period,
                          vlapic_lvtt_period(s) ? period : 0,
                          s->pt.irq,
@@ -1267,7 +1293,17 @@ void vlapic_destroy(struct vcpu *v)
     struct vlapic *vlapic = vcpu_vlapic(v);
 
     tasklet_kill(&vlapic->init_sipi.tasklet);
+    TRACE_0D(TRC_HVM_EMUL_LAPIC_STOP_TIMER);
     destroy_periodic_time(&vlapic->pt);
     unmap_domain_page_global(vlapic->regs);
     free_domheap_page(vlapic->regs_page);
 }
+
+/*
+ * Local variables:
+ * mode: C
+ * c-file-style: "BSD"
+ * c-basic-offset: 4
+ * indent-tabs-mode: nil
+ * End:
+ */

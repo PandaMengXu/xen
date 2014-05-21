@@ -96,7 +96,7 @@ static unsigned int get_symbol_offset(unsigned long pos)
 bool_t is_active_kernel_text(unsigned long addr)
 {
     return (is_kernel_text(addr) ||
-            (system_state == SYS_STATE_boot && is_kernel_inittext(addr)));
+            (system_state < SYS_STATE_active && is_kernel_inittext(addr)));
 }
 
 const char *symbols_lookup(unsigned long addr,
@@ -147,30 +147,4 @@ const char *symbols_lookup(unsigned long addr,
     *symbolsize = symbol_end - symbols_address(low);
     *offset = addr - symbols_address(low);
     return namebuf;
-}
-
-/* Replace "%s" in format with address, or returns -errno. */
-void __print_symbol(const char *fmt, unsigned long address)
-{
-    const char *name;
-    unsigned long offset, size, flags;
-
-    static DEFINE_SPINLOCK(lock);
-    static char namebuf[KSYM_NAME_LEN+1];
-#define BUFFER_SIZE sizeof("%s+%#lx/%#lx [%s]") + KSYM_NAME_LEN + \
-			2*(BITS_PER_LONG*3/10) + 1
-    static char buffer[BUFFER_SIZE];
-
-    spin_lock_irqsave(&lock, flags);
-
-    name = symbols_lookup(address, &size, &offset, namebuf);
-
-    if (!name)
-        snprintf(buffer, BUFFER_SIZE, "???");
-    else
-        snprintf(buffer, BUFFER_SIZE, "%s+%#lx/%#lx", name, offset, size);
-
-    printk(fmt, buffer);
-
-    spin_unlock_irqrestore(&lock, flags);
 }

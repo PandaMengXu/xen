@@ -25,6 +25,7 @@
 #define CONFIG_X86_PM_TIMER 1
 #define CONFIG_HPET_TIMER 1
 #define CONFIG_X86_MCE_THERMAL 1
+#define CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS 1
 #define CONFIG_NUMA 1
 #define CONFIG_DISCONTIGMEM 1
 #define CONFIG_NUMA_EMU 1
@@ -50,6 +51,12 @@
 #define CONFIG_XENOPROF 1
 #define CONFIG_KEXEC 1
 #define CONFIG_WATCHDOG 1
+
+#define CONFIG_MULTIBOOT 1
+
+#ifdef XSM_ENABLE
+#define CONFIG_LATE_HWDOM 1
+#endif
 
 #define HZ 100
 
@@ -79,6 +86,9 @@
 #define ENTRY(name)                             \
   .globl name;                                  \
   ALIGN;                                        \
+  name:
+#define GLOBAL(name)                            \
+  .globl name;                                  \
   name:
 #endif
 
@@ -125,7 +135,6 @@ extern unsigned char boot_edid_info[128];
 #define PML4_ADDR(_slot)                              \
     (((_AC(_slot, UL) >> 8) * _AC(0xffff000000000000,UL)) | \
      (_AC(_slot, UL) << PML4_ENTRY_BITS))
-#define GB(_gb) (_AC(_gb, UL) << 30)
 
 /*
  * Memory layout:
@@ -265,6 +274,8 @@ extern unsigned char boot_edid_info[128];
     (COMPAT_L2_PAGETABLE_LAST_XEN_SLOT - COMPAT_L2_PAGETABLE_FIRST_XEN_SLOT(d) + 1)
 
 #define COMPAT_LEGACY_MAX_VCPUS XEN_LEGACY_MAX_VCPUS
+#define COMPAT_HAVE_PV_GUEST_ENTRY XEN_HAVE_PV_GUEST_ENTRY
+#define COMPAT_HAVE_PV_UPCALL_MASK XEN_HAVE_PV_UPCALL_MASK
 
 #endif
 

@@ -89,9 +89,8 @@ void dump_execstate(struct cpu_user_regs *regs)
 
     if ( !is_idle_vcpu(current) )
     {
-        printk("*** Dumping CPU%u guest state (d%d:v%d): ***\n",
-               smp_processor_id(), current->domain->domain_id,
-               current->vcpu_id);
+        printk("*** Dumping CPU%u guest state (%pv): ***\n",
+               smp_processor_id(), current);
         show_execution_state(guest_cpu_user_regs());
         printk("\n");
     }
@@ -149,9 +148,9 @@ static struct keyhandler dump_registers_keyhandler = {
     .desc = "dump registers"
 };
 
-static DECLARE_TASKLET(dump_dom0_tasklet, NULL, 0);
+static DECLARE_TASKLET(dump_hwdom_tasklet, NULL, 0);
 
-static void dump_dom0_action(unsigned long arg)
+static void dump_hwdom_action(unsigned long arg)
 {
     struct vcpu *v = (void *)arg;
 
@@ -162,39 +161,39 @@ static void dump_dom0_action(unsigned long arg)
             break;
         if ( softirq_pending(smp_processor_id()) )
         {
-            dump_dom0_tasklet.data = (unsigned long)v;
-            tasklet_schedule_on_cpu(&dump_dom0_tasklet, v->processor);
+            dump_hwdom_tasklet.data = (unsigned long)v;
+            tasklet_schedule_on_cpu(&dump_hwdom_tasklet, v->processor);
             break;
         }
     }
 }
 
-static void dump_dom0_registers(unsigned char key)
+static void dump_hwdom_registers(unsigned char key)
 {
     struct vcpu *v;
 
-    if ( dom0 == NULL )
+    if ( hardware_domain == NULL )
         return;
 
     printk("'%c' pressed -> dumping Dom0's registers\n", key);
 
-    for_each_vcpu ( dom0, v )
+    for_each_vcpu ( hardware_domain, v )
     {
         if ( alt_key_handling && softirq_pending(smp_processor_id()) )
         {
-            tasklet_kill(&dump_dom0_tasklet);
-            tasklet_init(&dump_dom0_tasklet, dump_dom0_action,
+            tasklet_kill(&dump_hwdom_tasklet);
+            tasklet_init(&dump_hwdom_tasklet, dump_hwdom_action,
                          (unsigned long)v);
-            tasklet_schedule_on_cpu(&dump_dom0_tasklet, v->processor);
+            tasklet_schedule_on_cpu(&dump_hwdom_tasklet, v->processor);
             return;
         }
         vcpu_show_execution_state(v);
     }
 }
 
-static struct keyhandler dump_dom0_registers_keyhandler = {
+static struct keyhandler dump_hwdom_registers_keyhandler = {
     .diagnostic = 1,
-    .u.fn = dump_dom0_registers,
+    .u.fn = dump_hwdom_registers,
     .desc = "dump Dom0 registers"
 };
 
@@ -293,7 +292,7 @@ static void dump_domains(unsigned char key)
                    v->vcpu_id, v->processor,
                    v->is_running ? 'T':'F', v->poll_evtchn,
                    vcpu_info(v, evtchn_upcall_pending),
-                   vcpu_info(v, evtchn_upcall_mask));
+                   !vcpu_event_delivery_is_enabled(v));
             cpuset_print(tmpstr, sizeof(tmpstr), v->vcpu_dirty_cpumask);
             printk("dirty_cpus=%s ", tmpstr);
             cpuset_print(tmpstr, sizeof(tmpstr), v->cpu_affinity);
@@ -310,16 +309,9 @@ static void dump_domains(unsigned char key)
     {
         for_each_vcpu ( d, v )
         {
-            printk("Notifying guest %d:%d (virq %d, port %d, stat %d/%d/%d)\n",
+            printk("Notifying guest %d:%d (virq %d, port %d)\n",
                    d->domain_id, v->vcpu_id,
-                   VIRQ_DEBUG, v->virq_to_evtchn[VIRQ_DEBUG],
-                   test_bit(v->virq_to_evtchn[VIRQ_DEBUG], 
-                            &shared_info(d, evtchn_pending)),
-                   test_bit(v->virq_to_evtchn[VIRQ_DEBUG], 
-                            &shared_info(d, evtchn_mask)),
-                   test_bit(v->virq_to_evtchn[VIRQ_DEBUG] /
-                            BITS_PER_EVTCHN_WORD(d),
-                            &vcpu_info(v, evtchn_pending_sel)));
+                   VIRQ_DEBUG, v->virq_to_evtchn[VIRQ_DEBUG]);
             send_guest_vcpu_virq(v, VIRQ_DEBUG);
         }
     }
@@ -551,7 +543,7 @@ void __init initialize_keytable(void)
     register_keyhandler('r', &dump_runq_keyhandler);
     register_keyhandler('R', &reboot_machine_keyhandler);
     register_keyhandler('t', &read_clocks_keyhandler);
-    register_keyhandler('0', &dump_dom0_registers_keyhandler);
+    register_keyhandler('0', &dump_hwdom_registers_keyhandler);
     register_keyhandler('%', &do_debug_key_keyhandler);
     register_keyhandler('*', &run_all_keyhandlers_keyhandler);
 

@@ -56,7 +56,10 @@ struct cmd_spec cmd_table[] = {
     { "destroy",
       &main_destroy, 0, 1,
       "Terminate a domain immediately",
-      "<Domain>",
+      "[options] <Domain>\n",
+      "-f                      Permit destroying domain 0, which will only succeed\n"
+      "                        when run from disaggregated toolstack domain with a\n"
+      "                        hardware domain distinct from domain 0."
     },
     { "shutdown",
       &main_shutdown, 0, 1,
@@ -137,6 +140,7 @@ struct cmd_spec cmd_table[] = {
       "                         -autopass\n"
       "--vncviewer-autopass     (consistency alias for --autopass)"
     },
+#ifndef LIBXL_HAVE_NO_SUSPEND_RESUME
     { "save",
       &main_save, 0, 1,
       "Save a domain state to restore later",
@@ -158,11 +162,6 @@ struct cmd_spec cmd_table[] = {
       "                of the domain.\n"
       "--debug         Print huge (!) amount of debug during the migration process."
     },
-    { "dump-core",
-      &main_dump_core, 0, 1,
-      "Core dump a domain",
-      "<Domain> <filename>"
-    },
     { "restore",
       &main_restore, 0, 1,
       "Restore a domain from a saved state",
@@ -178,6 +177,12 @@ struct cmd_spec cmd_table[] = {
       &main_migrate_receive, 0, 1,
       "Restore a domain from a saved state",
       "- for internal use only",
+    },
+#endif
+    { "dump-core",
+      &main_dump_core, 0, 1,
+      "Core dump a domain",
+      "<Domain> <filename>"
     },
     { "cd-insert",
       &main_cd_insert, 1, 1,
@@ -211,7 +216,7 @@ struct cmd_spec cmd_table[] = {
       "[Domain, ...]",
     },
     { "vcpu-pin",
-      &main_vcpupin, 0, 1,
+      &main_vcpupin, 1, 1,
       "Set which CPUs a VCPU can use",
       "<Domain> <VCPU|all> <CPUs|all>",
     },
@@ -494,6 +499,7 @@ struct cmd_spec cmd_table[] = {
       "Loads a new policy int the Flask Xen security module",
       "<policy file>",
     },
+#ifndef LIBXL_HAVE_NO_SUSPEND_RESUME
     { "remus",
       &main_remus, 0, 1,
       "Enable Remus HA for domain",
@@ -506,7 +512,13 @@ struct cmd_spec cmd_table[] = {
       "                        ssh <host> xl migrate-receive -r [-e]\n"
       "-e                      Do not wait in the background (on <host>) for the death\n"
       "                        of the domain."
-
+    },
+#endif
+    { "devd",
+      &main_devd, 0, 1,
+      "Daemon that listens for devices and launches backends",
+      "[options]",
+      "-F                      Run in the foreground",
     },
 };
 

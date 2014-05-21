@@ -24,6 +24,7 @@
 #include <public/sysctl.h>
 #include <public/vcpu.h>
 #include <public/mem_event.h>
+#include <public/event_channel.h>
 
 #ifdef CONFIG_COMPAT
 #include <compat/vcpu.h>
@@ -42,17 +43,39 @@ DEFINE_XEN_GUEST_HANDLE(vcpu_runstate_info_compat_t);
 
 #define SCHED_STAT_CRANK(_X)                (perfc_incr(_X))
 
-/* A global pointer to the initial domain (DOM0). */
-extern struct domain *dom0;
+/* A global pointer to the hardware domain (usually DOM0). */
+extern struct domain *hardware_domain;
+
+#ifdef CONFIG_LATE_HWDOM
+extern domid_t hardware_domid;
+#else
+#define hardware_domid 0
+#endif
 
 #ifndef CONFIG_COMPAT
 #define BITS_PER_EVTCHN_WORD(d) BITS_PER_XEN_ULONG
 #else
 #define BITS_PER_EVTCHN_WORD(d) (has_32bit_shinfo(d) ? 32 : BITS_PER_XEN_ULONG)
 #endif
-#define MAX_EVTCHNS(d) (BITS_PER_EVTCHN_WORD(d) * BITS_PER_EVTCHN_WORD(d))
-#define EVTCHNS_PER_BUCKET 128
-#define NR_EVTCHN_BUCKETS  (NR_EVENT_CHANNELS / EVTCHNS_PER_BUCKET)
+
+#define BUCKETS_PER_GROUP  (PAGE_SIZE/sizeof(struct evtchn *))
+/* Round size of struct evtchn up to power of 2 size */
+#define __RDU2(x)   (       (x) | (   (x) >> 1))
+#define __RDU4(x)   ( __RDU2(x) | ( __RDU2(x) >> 2))
+#define __RDU8(x)   ( __RDU4(x) | ( __RDU4(x) >> 4))
+#define __RDU16(x)  ( __RDU8(x) | ( __RDU8(x) >> 8))
+#define __RDU32(x)  (__RDU16(x) | (__RDU16(x) >>16))
+#define next_power_of_2(x)      (__RDU32((x)-1) + 1)
+
+/* Maximum number of event channels for any ABI. */
+#define MAX_NR_EVTCHNS MAX(EVTCHN_2L_NR_CHANNELS, EVTCHN_FIFO_NR_CHANNELS)
+
+#define EVTCHNS_PER_BUCKET (PAGE_SIZE / next_power_of_2(sizeof(struct evtchn)))
+#define EVTCHNS_PER_GROUP  (BUCKETS_PER_GROUP * EVTCHNS_PER_BUCKET)
+#define NR_EVTCHN_GROUPS   DIV_ROUND_UP(MAX_NR_EVTCHNS, EVTCHNS_PER_GROUP)
+
+#define XEN_CONSUMER_BITS 3
+#define NR_XEN_CONSUMERS ((1 << XEN_CONSUMER_BITS) - 1)
 
 struct evtchn
 {
@@ -64,25 +87,46 @@ struct evtchn
 #define ECS_VIRQ         5 /* Channel is bound to a virtual IRQ line.        */
 #define ECS_IPI          6 /* Channel is bound to a virtual IPI line.        */
     u8  state;             /* ECS_* */
-    u8  xen_consumer;      /* Consumer in Xen, if any? (0 = send to guest) */
+    u8  xen_consumer:XEN_CONSUMER_BITS; /* Consumer in Xen if nonzero */
+    u8  pending:1;
     u16 notify_vcpu_id;    /* VCPU for local delivery notification */
+    u32 port;
     union {
         struct {
             domid_t remote_domid;
         } unbound;     /* state == ECS_UNBOUND */
         struct {
-            u16            remote_port;
+            evtchn_port_t  remote_port;
             struct domain *remote_dom;
         } interdomain; /* state == ECS_INTERDOMAIN */
         struct {
-            u16            irq;
-            u16            next_port;
-            u16            prev_port;
+            u32            irq;
+            evtchn_port_t  next_port;
+            evtchn_port_t  prev_port;
         } pirq;        /* state == ECS_PIRQ */
         u16 virq;      /* state == ECS_VIRQ */
     } u;
+    u8 priority;
+    u8 last_priority;
+    u16 last_vcpu_id;
+#ifdef XSM_ENABLE
+    union {
+#ifdef XSM_NEED_GENERIC_EVTCHN_SSID
+        /*
+         * If an XSM module needs more space for its event channel context,
+         * this pointer stores the necessary data for the security server.
+         */
+        void *generic;
+#endif
 #ifdef FLASK_ENABLE
-    void *ssid;
+        /*
+         * Inlining the contents of the structure for FLASK avoids unneeded
+         * allocations, and on 64-bit platforms with only FLASK enabled,
+         * reduces the size of struct evtchn.
+         */
+        u32 flask_sid;
+#endif
+    } ssid;
 #endif
 };
 
@@ -171,7 +215,7 @@ struct vcpu
     atomic_t         pause_count;
 
     /* IRQ-safe virq_lock protects against delivering VIRQ to stale evtchn. */
-    u16              virq_to_evtchn[NR_VIRQS];
+    evtchn_port_t    virq_to_evtchn[NR_VIRQS];
     spinlock_t       virq_lock;
 
     /* Bitmask of CPUs on which this VCPU may run. */
@@ -194,6 +238,8 @@ struct vcpu
 
     /* Guest-specified relocation of vcpu_info. */
     unsigned long vcpu_info_mfn;
+
+    struct evtchn_fifo_vcpu *evtchn_fifo;
 
     struct arch_vcpu arch;
 };
@@ -238,6 +284,16 @@ struct mem_event_per_domain
     struct mem_event_domain access;
 };
 
+struct evtchn_port_ops;
+
+/*
+ * PVH is a PV guest running in an HVM container.  is_hvm_* checks
+ * will be false, but has_hvm_container_* checks will be true.
+ */
+enum guest_type {
+    guest_type_pv, guest_type_pvh, guest_type_hvm
+};
+
 struct domain
 {
     domid_t          domain_id;
@@ -269,8 +325,13 @@ struct domain
     spinlock_t       rangesets_lock;
 
     /* Event channel information. */
-    struct evtchn   *evtchn[NR_EVTCHN_BUCKETS];
+    struct evtchn   *evtchn;                         /* first bucket only */
+    struct evtchn  **evtchn_group[NR_EVTCHN_GROUPS]; /* all other buckets */
+    unsigned int     max_evtchns;
+    unsigned int     max_evtchn_port;
     spinlock_t       event_lock;
+    const struct evtchn_port_ops *evtchn_port_ops;
+    struct evtchn_fifo_domain *evtchn_fifo;
 
     struct grant_table *grant_table;
 
@@ -285,11 +346,11 @@ struct domain
     struct rangeset *iomem_caps;
     struct rangeset *irq_caps;
 
-    /* Is this an HVM guest? */
-    bool_t           is_hvm;
+    enum guest_type guest_type;
+
 #ifdef HAS_PASSTHROUGH
-    /* Does this guest need iommu mappings? */
-    bool_t           need_iommu;
+    /* Does this guest need iommu mappings (-1 meaning "being set up")? */
+    s8               need_iommu;
 #endif
     /* is node-affinity automatically computed? */
     bool_t           auto_node_affinity;
@@ -341,6 +402,12 @@ struct domain
     /* Control-plane tools handle for this domain. */
     xen_domain_handle_t handle;
 
+    /* hvm_print_line() and guest_console_write() logging. */
+#define DOMAIN_PBUF_SIZE 80
+    char       *pbuf;
+    unsigned    pbuf_idx;
+    spinlock_t  pbuf_lock;
+
     /* OProfile support. */
     struct xenoprof *xenoprof;
     int32_t time_offset_seconds;
@@ -360,7 +427,7 @@ struct domain
     spinlock_t hypercall_deadlock_mutex;
 
     /* transcendent memory, auto-allocated on first tmem op by each domain */
-    void *tmem;
+    struct client *tmem_client;
 
     struct lock_profile_qhead profile_head;
 
@@ -426,7 +493,7 @@ static always_inline int get_domain(struct domain *d)
         old = seen;
         if ( unlikely(_atomic_read(old) & DOMAIN_DESTROYED) )
             return 0;
-        _atomic_set(new, _atomic_read(old) + 1);
+        _atomic_set(&new, _atomic_read(old) + 1);
         seen = atomic_compareandswap(old, new, &d->refcnt);
     }
     while ( unlikely(_atomic_read(seen) != _atomic_read(old)) );
@@ -464,6 +531,9 @@ struct domain *domain_create(
  /* DOMCRF_oos_off: dont use out-of-sync optimization for shadow page tables */
 #define _DOMCRF_oos_off         4
 #define DOMCRF_oos_off          (1U<<_DOMCRF_oos_off)
+ /* DOMCRF_pvh: Create PV domain in HVM container. */
+#define _DOMCRF_pvh             5
+#define DOMCRF_pvh              (1U<<_DOMCRF_pvh)
 
 /*
  * rcu_lock_domain_by_id() is more efficient than get_domain_by_id().
@@ -535,11 +605,18 @@ void __domain_crash(struct domain *d);
  * Mark current domain as crashed and synchronously deschedule from the local
  * processor. This function never returns.
  */
-void __domain_crash_synchronous(void) __attribute__((noreturn));
+void noreturn __domain_crash_synchronous(void);
 #define domain_crash_synchronous() do {                                   \
     printk("domain_crash_sync called from %s:%d\n", __FILE__, __LINE__);  \
     __domain_crash_synchronous();                                         \
 } while (0)
+
+/*
+ * Called from assembly code, with an optional address to help indicate why
+ * the crash occured.  If addr is 0, look up address from last extable
+ * redirection.
+ */
+void noreturn asm_domain_crash_synchronous(unsigned long addr);
 
 #define set_current_state(_s) do { current->state = (_s); } while (0)
 void scheduler_init(void);
@@ -554,9 +631,9 @@ void sched_set_node_affinity(struct domain *, nodemask_t *);
 int  sched_id(void);
 void sched_tick_suspend(void);
 void sched_tick_resume(void);
-void vcpu_wake(struct vcpu *d);
-void vcpu_sleep_nosync(struct vcpu *d);
-void vcpu_sleep_sync(struct vcpu *d);
+void vcpu_wake(struct vcpu *v);
+void vcpu_sleep_nosync(struct vcpu *v);
+void vcpu_sleep_sync(struct vcpu *v);
 
 /*
  * Force synchronisation of given VCPU's state. If it is currently descheduled,
@@ -687,6 +764,7 @@ void vcpu_unblock(struct vcpu *v);
 void vcpu_pause(struct vcpu *v);
 void vcpu_pause_nosync(struct vcpu *v);
 void domain_pause(struct domain *d);
+void domain_pause_nosync(struct domain *d);
 void vcpu_unpause(struct vcpu *v);
 void domain_unpause(struct domain *d);
 void domain_pause_by_systemcontroller(struct domain *d);
@@ -722,18 +800,24 @@ void watchdog_domain_destroy(struct domain *d);
 /* 
  * Use this check when the following are both true:
  *  - Using this feature or interface requires full access to the hardware
- *    (that is, this is would not be suitable for a driver domain)
- *  - There is never a reason to deny dom0 access to this
+ *    (that is, this would not be suitable for a driver domain)
+ *  - There is never a reason to deny the hardware domain access to this
  */
-#define is_hardware_domain(_d) ((_d)->is_privileged)
+#define is_hardware_domain(_d) ((_d) == hardware_domain)
 
 /* This check is for functionality specific to a control domain */
 #define is_control_domain(_d) ((_d)->is_privileged)
 
 #define VM_ASSIST(_d,_t) (test_bit((_t), &(_d)->vm_assist))
 
-#define is_hvm_domain(d) ((d)->is_hvm)
+#define is_pv_domain(d) ((d)->guest_type == guest_type_pv)
+#define is_pv_vcpu(v)   (is_pv_domain((v)->domain))
+#define is_pvh_domain(d) ((d)->guest_type == guest_type_pvh)
+#define is_pvh_vcpu(v)   (is_pvh_domain((v)->domain))
+#define is_hvm_domain(d) ((d)->guest_type == guest_type_hvm)
 #define is_hvm_vcpu(v)   (is_hvm_domain(v->domain))
+#define has_hvm_container_domain(d) ((d)->guest_type != guest_type_pv)
+#define has_hvm_container_vcpu(v)   (has_hvm_container_domain((v)->domain))
 #define is_pinned_vcpu(v) ((v)->domain->is_pinned || \
                            cpumask_weight((v)->cpu_affinity) == 1)
 #ifdef HAS_PASSTHROUGH

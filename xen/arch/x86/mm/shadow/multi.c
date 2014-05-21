@@ -592,6 +592,8 @@ _sh_propagate(struct vcpu *v,
     {
         unsigned int type;
 
+        ASSERT(!(sflags & (_PAGE_PAT | _PAGE_PCD | _PAGE_PWT)));
+
         /* compute the PAT index for shadow page entry when VT-d is enabled
          * and device assigned. 
          * 1) direct MMIO: compute the PAT index with gMTRR=UC and gPAT.
@@ -599,7 +601,7 @@ _sh_propagate(struct vcpu *v,
          * 3) if disables snoop control, compute the PAT index with
          *    gMTRR and gPAT.
          */
-        if ( hvm_get_mem_pinned_cacheattr(d, gfn_x(target_gfn), &type) )
+        if ( hvm_get_mem_pinned_cacheattr(d, gfn_x(target_gfn), 0, &type) )
             sflags |= pat_type_2_pte_flags(type);
         else if ( d->arch.hvm_domain.is_in_uc_mode )
             sflags |= pat_type_2_pte_flags(PAT_TYPE_UNCACHABLE);
@@ -692,27 +694,13 @@ _sh_propagate(struct vcpu *v,
                        && (ft == ft_demand_write))
 #endif /* OOS */
                   ) )
-    {
-        if ( shadow_mode_trap_reads(d) )
-        {
-            // if we are trapping both reads & writes, then mark this page
-            // as not present...
-            //
-            sflags &= ~_PAGE_PRESENT;
-        }
-        else
-        {
-            // otherwise, just prevent any writes...
-            //
-            sflags &= ~_PAGE_RW;
-        }
-    }
+        sflags &= ~_PAGE_RW;
 
     // PV guests in 64-bit mode use two different page tables for user vs
     // supervisor permissions, making the guest's _PAGE_USER bit irrelevant.
     // It is always shadowed as present...
     if ( (GUEST_PAGING_LEVELS == 4) && !is_pv_32on64_domain(d) 
-         && !is_hvm_domain(d) )
+         && is_pv_domain(d) )
     {
         sflags |= _PAGE_USER;
     }
@@ -816,7 +804,6 @@ shadow_write_entries(void *d, void *s, int entries, mfn_t mfn)
     {
         perfc_incr(shadow_linear_map_failed);
         map = sh_map_domain_page(mfn);
-        ASSERT(map != NULL);
         dst = map + ((unsigned long)dst & (PAGE_SIZE - 1));
     }
 
@@ -1433,15 +1420,18 @@ void sh_install_xen_entries_in_l4(struct vcpu *v, mfn_t gl4mfn, mfn_t sl4mfn)
 {
     struct domain *d = v->domain;
     shadow_l4e_t *sl4e;
+    unsigned int slots;
 
     sl4e = sh_map_domain_page(sl4mfn);
-    ASSERT(sl4e != NULL);
-    ASSERT(sizeof (l4_pgentry_t) == sizeof (shadow_l4e_t));
+    BUILD_BUG_ON(sizeof (l4_pgentry_t) != sizeof (shadow_l4e_t));
     
     /* Copy the common Xen mappings from the idle domain */
+    slots = (shadow_mode_external(d)
+             ? ROOT_PAGETABLE_XEN_SLOTS
+             : ROOT_PAGETABLE_PV_XEN_SLOTS);
     memcpy(&sl4e[ROOT_PAGETABLE_FIRST_XEN_SLOT],
            &idle_pg_table[ROOT_PAGETABLE_FIRST_XEN_SLOT],
-           ROOT_PAGETABLE_XEN_SLOTS * sizeof(l4_pgentry_t));
+           slots * sizeof(l4_pgentry_t));
 
     /* Install the per-domain mappings for this domain */
     sl4e[shadow_l4_table_offset(PERDOMAIN_VIRT_START)] =
@@ -1486,8 +1476,7 @@ static void sh_install_xen_entries_in_l2h(struct vcpu *v, mfn_t sl2hmfn)
         return;
 
     sl2e = sh_map_domain_page(sl2hmfn);
-    ASSERT(sl2e != NULL);
-    ASSERT(sizeof (l2_pgentry_t) == sizeof (shadow_l2e_t));
+    BUILD_BUG_ON(sizeof (l2_pgentry_t) != sizeof (shadow_l2e_t));
 
     /* Copy the common Xen mappings from the idle domain */
     memcpy(
@@ -2708,13 +2697,13 @@ static inline void trace_shadow_fixup(guest_l1e_t gl1e,
 {
     if ( tb_init_done )
     {
-        struct {
+        struct __packed {
             /* for PAE, guest_l1e may be 64 while guest_va may be 32;
                so put it first for alignment sake. */
             guest_l1e_t gl1e;
             guest_va_t va;
             u32 flags;
-        } __attribute__((packed)) d;
+        } d;
         u32 event;
 
         event = TRC_SHADOW_FIXUP | ((GUEST_PAGING_LEVELS-2)<<8);
@@ -2732,13 +2721,13 @@ static inline void trace_not_shadow_fault(guest_l1e_t gl1e,
 {
     if ( tb_init_done )
     {
-        struct {
+        struct __packed {
             /* for PAE, guest_l1e may be 64 while guest_va may be 32;
                so put it first for alignment sake. */
             guest_l1e_t gl1e;
             guest_va_t va;
             u32 flags;
-        } __attribute__((packed)) d;
+        } d;
         u32 event;
 
         event = TRC_SHADOW_NOT_SHADOW | ((GUEST_PAGING_LEVELS-2)<<8);
@@ -2757,7 +2746,7 @@ static inline void trace_shadow_emulate_other(u32 event,
 {
     if ( tb_init_done )
     {
-        struct {
+        struct __packed {
             /* for PAE, guest_l1e may be 64 while guest_va may be 32;
                so put it first for alignment sake. */
 #if GUEST_PAGING_LEVELS == 2
@@ -2766,7 +2755,7 @@ static inline void trace_shadow_emulate_other(u32 event,
             u64 gfn;
 #endif
             guest_va_t va;
-        } __attribute__((packed)) d;
+        } d;
 
         event |= ((GUEST_PAGING_LEVELS-2)<<8);
 
@@ -2787,13 +2776,13 @@ static inline void trace_shadow_emulate(guest_l1e_t gl1e, unsigned long va)
 {
     if ( tb_init_done )
     {
-        struct {
+        struct __packed {
             /* for PAE, guest_l1e may be 64 while guest_va may be 32;
                so put it first for alignment sake. */
             guest_l1e_t gl1e, write_val;
             guest_va_t va;
             unsigned flags:29, emulation_count:3;
-        } __attribute__((packed)) d;
+        } d;
         u32 event;
 
         event = TRC_SHADOW_EMULATE | ((GUEST_PAGING_LEVELS-2)<<8);
@@ -3177,18 +3166,10 @@ static int sh_page_fault(struct vcpu *v,
          && !(mfn_is_out_of_sync(gmfn)
               && !(regs->error_code & PFEC_user_mode))
 #endif
-         )
+         && (ft == ft_demand_write) )
     {
-        if ( ft == ft_demand_write )
-        {
-            perfc_incr(shadow_fault_emulate_write);
-            goto emulate;
-        }
-        else if ( shadow_mode_trap_reads(d) && ft == ft_demand_read )
-        {
-            perfc_incr(shadow_fault_emulate_read);
-            goto emulate;
-        }
+        perfc_incr(shadow_fault_emulate_write);
+        goto emulate;
     }
 
     /* Need to hand off device-model MMIO to the device model */
@@ -3918,7 +3899,7 @@ sh_update_cr3(struct vcpu *v, int do_locking)
 #endif
 
     /* Don't do anything on an uninitialised vcpu */
-    if ( !is_hvm_domain(d) && !v->is_initialised )
+    if ( is_pv_domain(d) && !v->is_initialised )
     {
         ASSERT(v->arch.cr3 == 0);
         return;

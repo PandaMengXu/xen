@@ -6,6 +6,7 @@ obj-$(EARLY_PRINTK) += early_printk.o
 obj-y += cpu.o
 obj-y += domain.o
 obj-y += psci.o
+obj-y += vpsci.o
 obj-y += domctl.o
 obj-y += sysctl.o
 obj-y += domain_build.o
@@ -30,6 +31,8 @@ obj-y += vtimer.o
 obj-y += vuart.o
 obj-y += hvm.o
 obj-y += device.o
+obj-y += decode.o
+obj-y += processor.o
 
 #obj-bin-y += ....o
 

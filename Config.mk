@@ -4,6 +4,12 @@ ifeq ($(filter /%,$(XEN_ROOT)),)
 $(error XEN_ROOT must be absolute)
 endif
 
+# Convenient variables
+comma   := ,
+squote  := '
+empty   :=
+space   := $(empty) $(empty)
+
 # fallback for older make
 realpath = $(wildcard $(foreach file,$(1),$(shell cd -P $(dir $(file)) && echo "$$PWD/$(notdir $(file))")))
 
@@ -18,7 +24,8 @@ coverage ?= n
 
 XEN_COMPILE_ARCH    ?= $(shell uname -m | sed -e s/i.86/x86_32/ \
                          -e s/i86pc/x86_32/ -e s/amd64/x86_64/ \
-                         -e s/armv7.*/arm32/ -e s/armv8.*/arm64/)
+                         -e s/armv7.*/arm32/ -e s/armv8.*/arm64/ \
+                         -e s/aarch64/arm64/)
 
 XEN_TARGET_ARCH     ?= $(XEN_COMPILE_ARCH)
 XEN_OS              ?= $(shell uname -s)
@@ -94,7 +101,7 @@ PYTHON_PREFIX_ARG ?= --prefix="$(PREFIX)"
 #
 # Usage: cflags-y += $(call cc-option,$(CC),-march=winchip-c6,-march=i586)
 cc-option = $(shell if test -z "`echo 'void*p=1;' | \
-              $(1) $(2) -S -o /dev/null -xc - 2>&1 | grep -- $(2) -`"; \
+              $(1) $(2) -S -o /dev/null -x c - 2>&1 | grep -- $(2) -`"; \
               then echo "$(2)"; else echo "$(3)"; fi ;)
 
 # cc-option-add: Add an option to compilation flags, but only if supported.
@@ -127,6 +134,21 @@ endef
 # Require GCC v4.1+
 check-$(gcc) = $(call cc-ver-check,CC,0x040100,"Xen requires at least gcc-4.1")
 $(eval $(check-y))
+
+# as-insn: Check whether assembler supports an instruction.
+# Usage: cflags-y += $(call as-insn "insn",option-yes,option-no)
+as-insn = $(if $(shell echo 'void _(void) { asm volatile ( $(2) ); }' \
+                       | $(1) -c -x c -o /dev/null - 2>&1),$(4),$(3))
+
+# as-insn-check: Add an option to compilation flags, but only if insn is
+#                supported by assembler.
+# Usage: $(call as-insn-check CFLAGS,CC,"nop",-DHAVE_GAS_NOP)
+as-insn-check = $(eval $(call as-insn-check-closure,$(1),$(2),$(3),$(4)))
+define as-insn-check-closure
+    ifeq ($$(call as-insn,$$($(2)),$(3),y,n),y)
+        $(1) += $(4)
+    endif
+endef
 
 define buildmakevars2shellvars
     export PREFIX="$(PREFIX)";                                            \
@@ -191,15 +213,15 @@ EMBEDDED_EXTRA_CFLAGS += -fno-exceptions
 XSM_ENABLE ?= n
 FLASK_ENABLE ?= $(XSM_ENABLE)
 
-XEN_EXTFILES_URL=http://xenbits.xen.org/xen-extfiles
+XEN_EXTFILES_URL ?= http://xenbits.xen.org/xen-extfiles
 # All the files at that location were downloaded from elsewhere on
 # the internet.  The original download URL is preserved as a comment
 # near the place in the Xen Makefiles where the file is used.
 
 ifeq ($(GIT_HTTP),y)
-QEMU_REMOTE=http://xenbits.xen.org/git-http/qemu-xen-4.3-testing.git
+QEMU_REMOTE ?= http://xenbits.xen.org/git-http/qemu-xen-unstable.git
 else
-QEMU_REMOTE=git://xenbits.xen.org/qemu-xen-4.3-testing.git
+QEMU_REMOTE ?= git://xenbits.xen.org/qemu-xen-unstable.git
 endif
 
 ifeq ($(GIT_HTTP),y)
@@ -211,11 +233,11 @@ OVMF_UPSTREAM_URL ?= git://xenbits.xen.org/ovmf.git
 QEMU_UPSTREAM_URL ?= git://xenbits.xen.org/qemu-upstream-4.3-testing.git
 SEABIOS_UPSTREAM_URL ?= git://xenbits.xen.org/seabios.git
 endif
-OVMF_UPSTREAM_REVISION ?= b0855f925c6e2e0b21fbb03fab4b5fb5b6876871
-QEMU_UPSTREAM_REVISION ?= qemu-xen-4.3.0
-SEABIOS_UPSTREAM_TAG ?= 3a28511b46f0c2af5fae1b6ed2b0c19d7913cee3
-# Wed Jun 26 16:30:45 2013 +0100
-# xen: Don't perform SMP setup.
+OVMF_UPSTREAM_REVISION ?= 447d264115c476142f884af0be287622cd244423
+QEMU_UPSTREAM_REVISION ?= master
+SEABIOS_UPSTREAM_TAG ?= rel-1.7.3.1
+# Fri Aug 2 14:12:09 2013 -0400
+# Fix bug in CBFS file walking with compressed files.
 
 ETHERBOOT_NICS ?= rtl8139 8086100e
 
@@ -224,15 +246,9 @@ ETHERBOOT_NICS ?= rtl8139 8086100e
 # CONFIG_QEMU ?= `pwd`/$(XEN_ROOT)/../qemu-xen.git
 CONFIG_QEMU ?= $(QEMU_REMOTE)
 
-<<<<<<< HEAD
-QEMU_TAG ?= xen-4.3.0
-# Mon Jun 17 17:39:51 2013 +0100
-# qemu-xen-traditional: disable docs
-=======
-QEMU_TAG ?= 84411871262363200e70fa087d7b21647091a450
-# Wed Jul 31 16:16:16 2013 +0100
-# qemu-xen-traditional: allow build without blktap1
->>>>>>> 0c006b41a283a0a569c863d44abde5aa5750ae01
+QEMU_TAG ?= 7f5b3c338e0f8938ba575dec18255dcbee0c2ee2
+# Wed Dec 18 15:25:14 2013 +0000
+# qemu-traditional: Fix build warnings on Wheezy
 
 # Short answer -- do not enable this unless you know what you are
 # doing and are prepared for some pain.

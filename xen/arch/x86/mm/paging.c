@@ -164,7 +164,7 @@ void paging_free_log_dirty_bitmap(struct domain *d)
     paging_unlock(d);
 }
 
-int paging_log_dirty_enable(struct domain *d)
+int paging_log_dirty_enable(struct domain *d, bool_t log_global)
 {
     int ret;
 
@@ -172,7 +172,7 @@ int paging_log_dirty_enable(struct domain *d)
         return -EINVAL;
 
     domain_pause(d);
-    ret = d->arch.paging.log_dirty.enable_log_dirty(d);
+    ret = d->arch.paging.log_dirty.enable_log_dirty(d, log_global);
     domain_unpause(d);
 
     return ret;
@@ -330,8 +330,8 @@ int paging_log_dirty_op(struct domain *d, struct xen_domctl_shadow_op *sc)
 {
     int rv = 0, clean = 0, peek = 1;
     unsigned long pages = 0;
-    mfn_t *l4, *l3, *l2;
-    unsigned long *l1;
+    mfn_t *l4 = NULL, *l3 = NULL, *l2 = NULL;
+    unsigned long *l1 = NULL;
     int i4, i3, i2;
 
     domain_pause(d);
@@ -434,6 +434,16 @@ int paging_log_dirty_op(struct domain *d, struct xen_domctl_shadow_op *sc)
  out:
     paging_unlock(d);
     domain_unpause(d);
+
+    if ( l1 )
+        unmap_domain_page(l1);
+    if ( l2 )
+        unmap_domain_page(l2);
+    if ( l3 )
+        unmap_domain_page(l3);
+    if ( l4 )
+        unmap_domain_page(l4);
+
     return rv;
 }
 
@@ -459,12 +469,8 @@ void paging_log_dirty_range(struct domain *d,
     p2m_lock(p2m);
 
     for ( i = 0, pfn = begin_pfn; pfn < begin_pfn + nr; i++, pfn++ )
-    {
-        p2m_type_t pt;
-        pt = p2m_change_type(d, pfn, p2m_ram_rw, p2m_ram_logdirty);
-        if ( pt == p2m_ram_rw )
+        if ( !p2m_change_type_one(d, pfn, p2m_ram_rw, p2m_ram_logdirty) )
             dirty_bitmap[i >> 3] |= (1 << (i & 7));
-    }
 
     p2m_unlock(p2m);
 
@@ -479,7 +485,8 @@ void paging_log_dirty_range(struct domain *d,
  * These function pointers must not be followed with the log-dirty lock held.
  */
 void paging_log_dirty_init(struct domain *d,
-                           int    (*enable_log_dirty)(struct domain *d),
+                           int    (*enable_log_dirty)(struct domain *d,
+                                                      bool_t log_global),
                            int    (*disable_log_dirty)(struct domain *d),
                            void   (*clean_dirty_bitmap)(struct domain *d))
 {
@@ -580,7 +587,7 @@ int paging_domctl(struct domain *d, xen_domctl_shadow_op_t *sc,
     case XEN_DOMCTL_SHADOW_OP_ENABLE_LOGDIRTY:
         if ( hap_enabled(d) )
             hap_logdirty_init(d);
-        return paging_log_dirty_enable(d);
+        return paging_log_dirty_enable(d, 1);
 
     case XEN_DOMCTL_SHADOW_OP_OFF:
         if ( paging_mode_log_dirty(d) )
@@ -713,18 +720,15 @@ void paging_update_nestedmode(struct vcpu *v)
 }
 
 void paging_write_p2m_entry(struct p2m_domain *p2m, unsigned long gfn,
-                            l1_pgentry_t *p, mfn_t table_mfn,
-                            l1_pgentry_t new, unsigned int level)
+                            l1_pgentry_t *p, l1_pgentry_t new,
+                            unsigned int level)
 {
     struct domain *d = p2m->domain;
     struct vcpu *v = current;
     if ( v->domain != d )
         v = d->vcpu ? d->vcpu[0] : NULL;
     if ( likely(v && paging_mode_enabled(d) && paging_get_hostmode(v) != NULL) )
-    {
-        return paging_get_hostmode(v)->write_p2m_entry(v, gfn, p, table_mfn,
-                                                       new, level);
-    }
+        paging_get_hostmode(v)->write_p2m_entry(d, gfn, p, new, level);
     else
         safe_write_pte(p, new);
 }

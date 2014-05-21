@@ -442,6 +442,7 @@ static void set_msi_source_id(struct pci_dev *pdev, struct iremap_entry *ire)
     case DEV_TYPE_PCIe_ENDPOINT:
     case DEV_TYPE_PCIe_BRIDGE:
     case DEV_TYPE_PCIe2PCI_BRIDGE:
+    case DEV_TYPE_PCI_HOST_BRIDGE:
         switch ( pdev->phantom_stride )
         {
         case 1: sq = SQ_13_IGNORE_3; break;
@@ -534,7 +535,7 @@ static int remap_entry_to_msi_msg(
         msg->dest32 = iremap_entry->lo.dst;
     else
         msg->dest32 = (iremap_entry->lo.dst >> 8) & 0xff;
-    msg->address_lo |= (msg->dest32 & 0xff) << MSI_ADDR_DEST_ID_SHIFT;
+    msg->address_lo |= MSI_ADDR_DEST_ID(msg->dest32);
 
     msg->data =
         MSI_DATA_TRIGGER_EDGE |
@@ -712,8 +713,8 @@ int enable_intremap(struct iommu *iommu, int eim)
 
     if ( !platform_supports_intremap() )
     {
-        dprintk(XENLOG_ERR VTDPREFIX,
-                "Platform firmware does not support interrupt remapping\n");
+        printk(XENLOG_ERR VTDPREFIX
+               " Platform firmware does not support interrupt remapping\n");
         return -EINVAL;
     }
 
@@ -724,14 +725,18 @@ int enable_intremap(struct iommu *iommu, int eim)
     if ( (sts & DMA_GSTS_IRES) && ir_ctrl->iremap_maddr )
         return 0;
 
-    sts = dmar_readl(iommu->reg, DMAR_GSTS_REG);
     if ( !(sts & DMA_GSTS_QIES) )
     {
-        dprintk(XENLOG_ERR VTDPREFIX,
-                "Queued invalidation is not enabled, should not enable "
-                "interrupt remapping\n");
+        printk(XENLOG_ERR VTDPREFIX
+               " Queued invalidation is not enabled on IOMMU #%u:"
+               " Should not enable interrupt remapping\n", iommu->index);
         return -EINVAL;
     }
+
+    if ( !eim && (sts & DMA_GSTS_CFIS) )
+        printk(XENLOG_WARNING VTDPREFIX
+               " Compatibility Format Interrupts permitted on IOMMU #%u:"
+               " Device pass-through will be insecure\n", iommu->index);
 
     if ( ir_ctrl->iremap_maddr == 0 )
     {

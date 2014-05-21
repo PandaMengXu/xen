@@ -178,10 +178,6 @@ static PyObject *pyxc_domain_unpause(XcObject *self, PyObject *args)
 
 static PyObject *pyxc_domain_destroy_hook(XcObject *self, PyObject *args)
 {
-#ifdef __ia64__
-    dom_op(self, args, xc_ia64_save_to_nvram);
-#endif
-
     Py_INCREF(zero);
     return zero;
 }
@@ -237,7 +233,7 @@ static PyObject *pyxc_vcpu_setaffinity(XcObject *self,
         return NULL;
 
     nr_cpus = xc_get_max_cpus(self->xc_handle);
-    if ( nr_cpus == 0 )
+    if ( nr_cpus < 0 )
         return pyxc_error_to_exception(self->xc_handle);
 
     cpumap = xc_cpumap_alloc(self->xc_handle);
@@ -396,7 +392,7 @@ static PyObject *pyxc_vcpu_getinfo(XcObject *self,
         return NULL;
 
     nr_cpus = xc_get_max_cpus(self->xc_handle);
-    if ( nr_cpus == 0 )
+    if ( nr_cpus < 0 )
         return pyxc_error_to_exception(self->xc_handle);
 
     rc = xc_vcpu_getinfo(self->xc_handle, dom, vcpu, &info);
@@ -779,39 +775,6 @@ static PyObject *pyxc_get_device_group(XcObject *self,
     return Pystr;
 }
 
-#ifdef __ia64__
-static PyObject *pyxc_nvram_init(XcObject *self,
-                                 PyObject *args)
-{
-    char *dom_name;
-    uint32_t dom;
-
-    if ( !PyArg_ParseTuple(args, "si", &dom_name, &dom) )
-        return NULL;
-
-    xc_ia64_nvram_init(self->xc_handle, dom_name, dom);
-
-    Py_INCREF(zero);
-    return zero;
-}
-
-static PyObject *pyxc_set_os_type(XcObject *self,
-                                  PyObject *args)
-{
-    char *os_type;
-    uint32_t dom;
-
-    if ( !PyArg_ParseTuple(args, "si", &os_type, &dom) )
-        return NULL;
-
-    xc_ia64_set_os_type(self->xc_handle, os_type, dom);
-
-    Py_INCREF(zero);
-    return zero;
-}
-#endif /* __ia64__ */
-
-
 #if defined(__i386__) || defined(__x86_64__)
 static void pyxc_dom_extract_cpuid(PyObject *config,
                                   char **regs)
@@ -950,10 +913,8 @@ static PyObject *pyxc_hvm_build(XcObject *self,
                                 PyObject *kwds)
 {
     uint32_t dom;
-#if !defined(__ia64__)
     struct hvm_info_table *va_hvm;
     uint8_t *va_map, sum;
-#endif
     int i;
     char *image;
     int memsize, target=-1, vcpus = 1, acpi = 0, apic = 1;
@@ -1000,7 +961,6 @@ static PyObject *pyxc_hvm_build(XcObject *self,
                                  target, image) != 0 )
         return pyxc_error_to_exception(self->xc_handle);
 
-#if !defined(__ia64__)
     /* Fix up the HVM info table. */
     va_map = xc_map_foreign_range(self->xc_handle, dom, XC_PAGE_SIZE,
                                   PROT_READ | PROT_WRITE,
@@ -1015,7 +975,6 @@ static PyObject *pyxc_hvm_build(XcObject *self,
         sum += ((uint8_t *)va_hvm)[i];
     va_hvm->checksum -= sum;
     munmap(va_map, XC_PAGE_SIZE);
-#endif
 
     return Py_BuildValue("{}");
 }
@@ -1222,6 +1181,40 @@ static PyObject *pyxc_physinfo(XcObject *self)
                             "cpu_khz",          pinfo.cpu_khz,
                             "hw_caps",          cpu_cap,
                             "virt_caps",        virt_caps);
+}
+
+static PyObject *pyxc_getcpuinfo(XcObject *self, PyObject *args, PyObject *kwds)
+{
+    xc_cpuinfo_t *cpuinfo, *cpuinfo_ptr;
+    PyObject *cpuinfo_list_obj, *cpuinfo_obj;
+    int max_cpus, nr_cpus, ret, i;
+    static char *kwd_list[] = { "max_cpus", NULL };
+    static char kwd_type[] = "i";
+
+    if(!PyArg_ParseTupleAndKeywords(args, kwds, kwd_type, kwd_list, &max_cpus))
+        return NULL;
+
+    cpuinfo = malloc(sizeof(xc_cpuinfo_t) * max_cpus);
+    if (!cpuinfo)
+        return NULL;
+
+    ret = xc_getcpuinfo(self->xc_handle, max_cpus, cpuinfo, &nr_cpus);
+    if (ret != 0) {
+        free(cpuinfo);
+        return pyxc_error_to_exception(self->xc_handle);
+    }
+
+    cpuinfo_list_obj = PyList_New(0);
+    cpuinfo_ptr = cpuinfo;
+    for (i = 0; i < nr_cpus; i++) {
+        cpuinfo_obj = Py_BuildValue("{s:k}", "idletime", cpuinfo_ptr->idletime);
+        PyList_Append(cpuinfo_list_obj, cpuinfo_obj);
+        cpuinfo_ptr++;
+    }
+
+    free(cpuinfo);
+
+    return cpuinfo_list_obj;
 }
 
 static PyObject *pyxc_topologyinfo(XcObject *self)
@@ -2060,7 +2053,7 @@ static PyObject *cpumap_to_cpulist(XcObject *self, xc_cpumap_t cpumap)
     int nr_cpus;
 
     nr_cpus = xc_get_max_cpus(self->xc_handle);
-    if ( nr_cpus == 0 )
+    if ( nr_cpus < 0 )
         return pyxc_error_to_exception(self->xc_handle);
 
     cpulist = PyList_New(0);
@@ -2796,6 +2789,13 @@ static PyMethodDef pyxc_methods[] = {
       "Returns [dict]: information about the hardware"
       "        [None]: on failure.\n" },
 
+    { "getcpuinfo",
+      (PyCFunction)pyxc_getcpuinfo,
+      METH_VARARGS | METH_KEYWORDS, "\n"
+      "Get information about physical CPUs\n"
+      "Returns [list]: information about physical CPUs"
+      "        [None]: on failure.\n" },
+
     { "topologyinfo",
       (PyCFunction)pyxc_topologyinfo,
       METH_NOARGS, "\n"
@@ -2857,18 +2857,6 @@ static PyMethodDef pyxc_methods[] = {
       " map_limitkb [int]: .\n"
       "Returns: [int] 0 on success; -1 on error.\n" },
 
-#ifdef __ia64__
-    { "nvram_init",
-      (PyCFunction)pyxc_nvram_init,
-      METH_VARARGS, "\n"
-      "Init nvram in IA64 platform\n"
-      "Returns: [int] 0 on success; -1 on error.\n" },
-    { "set_os_type",
-      (PyCFunction)pyxc_set_os_type,
-      METH_VARARGS, "\n"
-      "Set guest OS type on IA64 platform\n"
-      "Returns: [int] 0 on success; -1 on error.\n" },
-#endif /* __ia64__ */
     { "domain_ioport_permission",
       (PyCFunction)pyxc_domain_ioport_permission,
       METH_VARARGS | METH_KEYWORDS, "\n"

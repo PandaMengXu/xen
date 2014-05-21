@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <assert.h>
 
 #include "xc_private.h"
 #include "xc_bitops.h"
@@ -150,6 +151,7 @@ static inline int outbuf_write(xc_interface *xch,
                                struct outbuf* ob, void* buf, size_t len)
 {
     if ( len > ob->size - ob->pos ) {
+        errno = ERANGE;
         DBGPRINTF("outbuf_write: %zu > %zu@%zu\n", len, ob->size - ob->pos, ob->pos);
         return -1;
     }
@@ -233,7 +235,7 @@ static int write_compressed(xc_interface *xch, comp_ctx *compress_ctx,
     int marker = XC_SAVE_ID_COMPRESSED_DATA;
     unsigned long compbuf_len = 0;
 
-    do
+    for(;;)
     {
         /* check for available space (atleast 8k) */
         if ((ob->pos + header + XC_PAGE_SIZE * 2) > ob->size)
@@ -250,7 +252,7 @@ static int write_compressed(xc_interface *xch, comp_ctx *compress_ctx,
                                            ob->size - ob->pos - header,
                                            &compbuf_len);
         if (!rc)
-            return 0;
+            break;
 
         if (outbuf_hardwrite(xch, ob, fd, &marker, sizeof(marker)) < 0)
         {
@@ -270,7 +272,7 @@ static int write_compressed(xc_interface *xch, comp_ctx *compress_ctx,
             ERROR("Error when writing compressed chunk");
             return -1;
         }
-    } while (rc != 0);
+    }
 
     return 0;
 }
@@ -773,11 +775,9 @@ static xen_pfn_t *map_and_save_p2m_table(xc_interface *xch,
     if ( live_p2m_frame_list )
         munmap(live_p2m_frame_list, P2M_FLL_ENTRIES * PAGE_SIZE);
 
-    if ( p2m_frame_list_list ) 
-        free(p2m_frame_list_list);
+    free(p2m_frame_list_list);
 
-    if ( p2m_frame_list ) 
-        free(p2m_frame_list);
+    free(p2m_frame_list);
 
     return success ? p2m : NULL;
 }
@@ -808,7 +808,7 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom, uint32_t max_iter
     xc_dominfo_t info;
     DECLARE_DOMCTL;
 
-    int rc = 1, frc, i, j, last_iter = 0, iter = 0;
+    int rc, frc, i, j, last_iter = 0, iter = 0;
     int live  = (flags & XCFLAGS_LIVE);
     int debug = (flags & XCFLAGS_DEBUG);
     int superpages = !!hvm;
@@ -901,7 +901,7 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom, uint32_t max_iter
     {
         ERROR("No switch_qemu_logdirty callback provided.");
         errno = EINVAL;
-        return 1;
+        goto exit;
     }
 
     outbuf_init(xch, &ob_pagebuf, OUTBUF_SIZE);
@@ -916,13 +916,13 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom, uint32_t max_iter
                             &ctx->max_mfn, &ctx->hvirt_start, &ctx->pt_levels, &dinfo->guest_width) )
     {
         ERROR("Unable to get platform info.");
-        return 1;
+        goto exit;
     }
 
     if ( xc_domain_getinfo(xch, dom, 1, &info) != 1 )
     {
         PERROR("Could not get domain info");
-        return 1;
+        goto exit;
     }
 
     shared_info_frame = info.shared_info_frame;
@@ -944,6 +944,7 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom, uint32_t max_iter
 
     if ( dinfo->p2m_size > ~XEN_DOMCTL_PFINFO_LTAB_MASK )
     {
+        errno = E2BIG;
         ERROR("Cannot save this big a guest");
         goto out;
     }
@@ -1014,6 +1015,7 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom, uint32_t max_iter
 
     if ( !to_send || !to_fix || !to_skip )
     {
+        errno = ENOMEM;
         ERROR("Couldn't allocate to_send array");
         goto out;
     }
@@ -1032,6 +1034,7 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom, uint32_t max_iter
         hvm_buf = malloc(hvm_buf_size);
         if ( !hvm_buf )
         {
+            errno = ENOMEM;
             ERROR("Couldn't allocate memory");
             goto out;
         }
@@ -1600,6 +1603,7 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom, uint32_t max_iter
 
         if ( info.max_vcpu_id >= XC_SR_MAX_VCPUS )
         {
+            errno = E2BIG;
             ERROR("Too many VCPUS in guest!");
             goto out;
         }
@@ -1832,8 +1836,7 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom, uint32_t max_iter
         }
         
         /* HVM guests are done now */
-        rc = 0;
-        goto out;
+        goto success;
     }
 
     /* PV guests only from now on */
@@ -1890,6 +1893,7 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom, uint32_t max_iter
     mfn = GET_FIELD(&ctxt, user_regs.edx);
     if ( !MFN_IS_IN_PSEUDOPHYS_MAP(mfn) )
     {
+        errno = ERANGE;
         ERROR("Suspend record is not in range of pseudophys map");
         goto out;
     }
@@ -1912,6 +1916,7 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom, uint32_t max_iter
             mfn = GET_FIELD(&ctxt, gdt_frames[j]);
             if ( !MFN_IS_IN_PSEUDOPHYS_MAP(mfn) )
             {
+                errno = ERANGE;
                 ERROR("GDT frame is not in range of pseudophys map");
                 goto out;
             }
@@ -1922,6 +1927,7 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom, uint32_t max_iter
         if ( !MFN_IS_IN_PSEUDOPHYS_MAP(UNFOLD_CR3(
                                            GET_FIELD(&ctxt, ctrlreg[3]))) )
         {
+            errno = ERANGE;
             ERROR("PT base is not in range of pseudophys map");
             goto out;
         }
@@ -1933,6 +1939,7 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom, uint32_t max_iter
         {
             if ( !MFN_IS_IN_PSEUDOPHYS_MAP(UNFOLD_CR3(ctxt.x64.ctrlreg[1])) )
             {
+                errno = ERANGE;
                 ERROR("PT base is not in range of pseudophys map");
                 goto out;
             }
@@ -2029,9 +2036,14 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom, uint32_t max_iter
     }
 
     /* Success! */
-    rc = 0;
+ success:
+    rc = errno = 0;
+    goto out_rc;
 
  out:
+    rc = errno;
+    assert(rc);
+ out_rc:
     completed = 1;
 
     if ( !rc && callbacks->postcopy )
@@ -2046,13 +2058,11 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom, uint32_t max_iter
         if (wrcompressed(io_fd) < 0)
         {
             ERROR("Error when writing compressed data, after postcopy\n");
-            rc = 1;
             goto out;
         }
         /* Append the tailbuf data to the main outbuf */
         if ( wrexact(io_fd, ob_tailbuf.buf, ob_tailbuf.pos) )
         {
-            rc = 1;
             PERROR("Error when copying tailbuf into outbuf");
             goto out;
         }
@@ -2061,7 +2071,8 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom, uint32_t max_iter
     /* Flush last write and discard cache for file. */
     if ( ob && outbuf_flush(xch, ob, io_fd) < 0 ) {
         PERROR("Error when flushing output buffer");
-        rc = 1;
+        if (!rc)
+            rc = errno;
     }
 
     discard_file_cache(xch, io_fd, 1 /* flush */);
@@ -2076,7 +2087,6 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom, uint32_t max_iter
         /* reset stats timer */
         print_stats(xch, dom, 0, &time_stats, &shadow_stats, 0);
 
-        rc = 1;
         /* last_iter = 1; */
         if ( suspend_and_state(callbacks->suspend, callbacks->data, xch,
                                io_fd, dom, &info) )
@@ -2132,9 +2142,11 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom, uint32_t max_iter
     free(hvm_buf);
     outbuf_free(&ob_pagebuf);
 
-    DPRINTF("Save exit of domid %u with rc=%d\n", dom, rc);
+    errno = rc;
+exit:
+    DPRINTF("Save exit of domid %u with errno=%d\n", dom, errno);
 
-    return !!rc;
+    return !!errno;
 }
 
 /*

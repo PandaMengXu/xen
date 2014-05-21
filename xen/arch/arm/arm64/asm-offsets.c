@@ -12,11 +12,12 @@
 #include <public/xen.h>
 #include <asm/current.h>
 
-#define DEFINE(_sym, _val) \
-    __asm__ __volatile__ ( "\n->" #_sym " %0 " #_val : : "i" (_val) )
-#define BLANK() \
-    __asm__ __volatile__ ( "\n->" : : )
-#define OFFSET(_sym, _str, _mem) \
+#define DEFINE(_sym, _val)                                                 \
+    asm volatile ("\n.ascii\"==>#define " #_sym " %0 /* " #_val " */<==\"" \
+                  : : "i" (_val) )
+#define BLANK()                                                            \
+    asm volatile ( "\n.ascii\"==><==\"" : : )
+#define OFFSET(_sym, _str, _mem)                                           \
     DEFINE(_sym, offsetof(_str, _mem));
 
 void __dummy__(void)
@@ -46,6 +47,9 @@ void __dummy__(void)
    DEFINE(CPUINFO_sizeof, sizeof(struct cpu_info));
 
    OFFSET(VCPU_arch_saved_context, struct vcpu, arch.saved_context);
+
+   BLANK();
+   OFFSET(INITINFO_stack, struct init_info, stack);
 }
 
 /*

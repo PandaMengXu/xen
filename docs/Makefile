@@ -9,21 +9,28 @@ VERSION		:= $(shell $(MAKE) -C $(XEN_ROOT)/xen --no-print-directory xenversion)
 DOC_ARCHES      := arm x86_32 x86_64
 >>>>>>> 0c006b41a283a0a569c863d44abde5aa5750ae01
 
-DOC_MAN5SRC	:= $(wildcard man/*.pod.5)
-DOC_MAN1SRC	:= $(wildcard man/*.pod.1)
-DOC_MAN1	:= $(patsubst man/%.pod.1,man1/%.1,$(DOC_MAN1SRC))
-DOC_MAN5	:= $(patsubst man/%.pod.5,man5/%.5,$(DOC_MAN5SRC))
-DOC_MARKDOWN	:= $(wildcard misc/*.markdown)
-DOC_HTML	:= $(patsubst %.markdown,html/%.html,$(DOC_MARKDOWN)) \
-		   $(patsubst man/%.pod.1,html/man/%.1.html,$(DOC_MAN1SRC)) \
-		   $(patsubst man/%.pod.5,html/man/%.5.html,$(DOC_MAN5SRC)) \
-		   $(patsubst %.txt,html/%.txt,$(wildcard misc/*.txt)) \
-		   html/hypercall/index.html \
-		   $(patsubst %,html/hypercall-%/index.html,$(DOC_ARCHES))
-DOC_TXT         := $(patsubst %.txt,txt/%.txt,$(wildcard misc/*.txt)) \
-		   $(patsubst %.markdown,txt/%.txt,$(DOC_MARKDOWN)) \
-		   $(patsubst man/%.pod.1,txt/man/%.1.txt,$(DOC_MAN1SRC)) \
-		   $(patsubst man/%.pod.5,txt/man/%.5.txt,$(DOC_MAN5SRC))
+# Documentation sources to build
+MAN1SRC-y := $(wildcard man/xl*.pod.1)
+MAN1SRC-y += $(wildcard man/xenstore*.pod.1)
+
+MAN5SRC-y := $(wildcard man/xl*.pod.5)
+
+MARKDOWNSRC-y := $(wildcard misc/*.markdown)
+
+TXTSRC-y := $(wildcard misc/*.txt)
+
+
+DOC_MAN1 := $(patsubst man/%.pod.1,man1/%.1,$(MAN1SRC-y))
+DOC_MAN5 := $(patsubst man/%.pod.5,man5/%.5,$(MAN5SRC-y))
+DOC_HTML := $(patsubst %.markdown,html/%.html,$(MARKDOWNSRC-y)) \
+            $(patsubst man/%.pod.1,html/man/%.1.html,$(MAN1SRC-y)) \
+            $(patsubst man/%.pod.5,html/man/%.5.html,$(MAN5SRC-y)) \
+            $(patsubst %.txt,html/%.txt,$(TXTSRC-y)) \
+            $(patsubst %,html/hypercall/%/index.html,$(DOC_ARCHES))
+DOC_TXT  := $(patsubst %.txt,txt/%.txt,$(TXTSRC-y)) \
+            $(patsubst %.markdown,txt/%.txt,$(MARKDOWNSRC-y)) \
+            $(patsubst man/%.pod.1,txt/man/%.1.txt,$(MAN1SRC-y)) \
+            $(patsubst man/%.pod.5,txt/man/%.5.txt,$(MAN5SRC-y))
 
 .PHONY: all
 all: build
@@ -82,15 +89,19 @@ distclean: clean
 	rm -rf $(XEN_ROOT)/config/Docs.mk config.log config.status config.cache \
 		autom4te.cache
 
-.PHONY: install
-install: all
-	rm -rf $(DESTDIR)$(DOCDIR)
-	$(INSTALL_DIR) $(DESTDIR)$(DOCDIR)
-
+.PHONY: install-man-pages
+install-man-pages: man-pages
 	$(INSTALL_DIR) $(DESTDIR)$(MANDIR)
 	cp -R man1 $(DESTDIR)$(MANDIR)
 	cp -R man5 $(DESTDIR)$(MANDIR)
+
+.PHONY: install-html
+install-html: html txt figs
+	$(INSTALL_DIR) $(DESTDIR)$(DOCDIR)
 	[ ! -d html ] || cp -R html $(DESTDIR)$(DOCDIR)
+
+.PHONY: install
+install: install-man-pages install-html
 
 html/index.html: $(DOC_HTML) $(CURDIR)/gen-html-index INDEX
 	$(PERL) -w -- $(CURDIR)/gen-html-index -i INDEX html $(DOC_HTML)
@@ -128,9 +139,9 @@ else
 endif
 
 # For non-x86 arches exclude the subarch whole x86 arch.
-$(foreach i,$(filter-out x86_32 x86_64,$(DOC_ARCHES)),html/hypercall-$(i)/index.html): EXTRA_EXCLUDE := -X arch-x86
+$(foreach i,$(filter-out x86_32 x86_64,$(DOC_ARCHES)),html/hypercall/$(i)/index.html): EXTRA_EXCLUDE := -X arch-x86
 
-html/hypercall-%/index.html: $(CURDIR)/xen-headers Makefile
+html/hypercall/%/index.html: $(CURDIR)/xen-headers Makefile
 	rm -rf $(@D)
 	$(INSTALL_DIR) $(@D)
 	$(PERL) -w $(CURDIR)/xen-headers -O $(@D) \
@@ -140,10 +151,7 @@ html/hypercall-%/index.html: $(CURDIR)/xen-headers Makefile
 		$(EXTRA_EXCLUDE) \
 		$(XEN_ROOT)/xen include/public include/xen/errno.h
 
-html/hypercall/index.html: html/hypercall-x86_64/index.html
-	ln -nfs hypercall-x86_64 html/hypercall
-
--include $(wildcard html/hypercall-*/.deps)
+-include $(wildcard html/hypercall/*/.deps)
 
 txt/%.txt: %.txt
 	$(INSTALL_DIR) $(@D)

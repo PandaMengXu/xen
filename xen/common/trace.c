@@ -420,7 +420,7 @@ int tb_control(xen_sysctl_tbuf_op_t *tbc)
          * hypercall returns, no more records should be placed into the buffers. */
         for_each_online_cpu(i)
         {
-            int flags;
+            unsigned long flags;
             spin_lock_irqsave(&per_cpu(t_lock, i), flags);
             per_cpu(lost_records, i)=0;
             spin_unlock_irqrestore(&per_cpu(t_lock, i), flags);
@@ -641,11 +641,11 @@ static inline void insert_wrap_record(struct t_buf *buf,
 
 static inline void insert_lost_records(struct t_buf *buf)
 {
-    struct {
+    struct __packed {
         u32 lost_records;
-        u32 did:16, vid:16;
+        u16 did, vid;
         u64 first_tsc;
-    } __attribute__((packed)) ed;
+    } ed;
 
     ed.vid = current->vcpu_id;
     ed.did = current->domain->domain_id;
@@ -817,12 +817,12 @@ unlock:
 }
 
 void __trace_hypercall(uint32_t event, unsigned long op,
-                       const unsigned long *args)
+                       const xen_ulong_t *args)
 {
-    struct {
+    struct __packed {
         uint32_t op;
         uint32_t args[6];
-    } __attribute__((packed)) d;
+    } d;
     uint32_t *a = d.args;
 
 #define APPEND_ARG32(i)                         \

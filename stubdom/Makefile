@@ -23,9 +23,6 @@ TARGET_CFLAGS=-mno-red-zone
 NEWLIB_CFLAGS+=-D_I386MACH_ALLOW_HW_INTERRUPTS
 STUBDOM_SUPPORTED=1
 endif
-ifeq ($(GNU_TARGET_ARCH), ia64)
-TARGET_CFLAGS=-mconstant-gp
-endif
 
 CROSS_ROOT=cross-root-$(GNU_TARGET_ARCH)
 CROSS_PREFIX=$(CURDIR)/$(CROSS_ROOT)
@@ -211,6 +208,8 @@ tpm_emulator-$(XEN_TARGET_ARCH): tpm_emulator-$(TPMEMU_VERSION).tar.gz
 	patch -d $@ -p1 < tpmemu-$(TPMEMU_VERSION).patch;
 	patch -d $@ -p1 < vtpm-bufsize.patch
 	patch -d $@ -p1 < vtpm-locality.patch
+	patch -d $@ -p1 < vtpm-parent-sign-ek.patch
+	patch -d $@ -p1 < vtpm-deepquote.patch
 	mkdir $@/build
 	cd $@/build; CC=${CC} $(CMAKE) .. -DCMAKE_C_FLAGS:STRING="-std=c99 -DTPM_NO_EXTERN $(TARGET_CPPFLAGS) $(TARGET_CFLAGS) -Wno-declaration-after-statement"
 	touch $@
@@ -264,6 +263,10 @@ $(CROSS_ROOT): cross-newlib cross-zlib cross-libpci
 
 QEMU_ROOT := $(shell if [ -d "$(CONFIG_QEMU)" ]; then echo "$(CONFIG_QEMU)"; else echo .; fi)
 
+ifneq ($(filter ioemu,$(STUBDOM_TARGETS)),)
+IOEMU_LINKFARM_TARGET := ioemu/linkfarm.stamp
+endif
+
 ifeq ($(QEMU_ROOT),.)
 $(XEN_ROOT)/tools/qemu-xen-traditional-dir:
 	$(MAKE) DESTDIR= -C $(XEN_ROOT)/tools qemu-xen-traditional-dir-find
@@ -289,7 +292,7 @@ ioemu/linkfarm.stamp:
 	touch ioemu/linkfarm.stamp
 endif
 
-mk-headers-$(XEN_TARGET_ARCH): ioemu/linkfarm.stamp
+mk-headers-$(XEN_TARGET_ARCH): $(IOEMU_LINKFARM_TARGET)
 	mkdir -p include/xen && \
           ln -sf $(wildcard $(XEN_ROOT)/xen/include/public/*.h) include/xen && \
           ln -sf $(addprefix $(XEN_ROOT)/xen/include/public/,arch-x86 hvm io xsm) include/xen && \

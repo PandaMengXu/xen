@@ -38,14 +38,15 @@ static inline void fpu_xrstor(struct vcpu *v, uint64_t mask)
 {
     bool_t ok;
 
+    ASSERT(v->arch.xsave_area);
     /*
      * XCR0 normally represents what guest OS set. In case of Xen itself, 
-     * we set all supported feature mask before doing save/restore.
+     * we set the accumulated feature mask before doing save/restore.
      */
-    ok = set_xcr0(v->arch.xcr0_accum);
+    ok = set_xcr0(v->arch.xcr0_accum | XSTATE_FP_SSE);
     ASSERT(ok);
     xrstor(v, mask);
-    ok = set_xcr0(v->arch.xcr0);
+    ok = set_xcr0(v->arch.xcr0 ?: XSTATE_FP_SSE);
     ASSERT(ok);
 }
 
@@ -96,8 +97,7 @@ static inline void fpu_fxrstor(struct vcpu *v)
             ".previous                \n"
             _ASM_EXTABLE(1b, 2b)
             :
-            : "m" (*fpu_ctxt), "i" (sizeof(*fpu_ctxt) / 4),
-              "cdaSDb" (fpu_ctxt) );
+            : "m" (*fpu_ctxt), "i" (sizeof(*fpu_ctxt) / 4), "R" (fpu_ctxt) );
         break;
     case 4: case 2:
         asm volatile (
@@ -133,18 +133,31 @@ static inline void fpu_frstor(struct vcpu *v)
 /*******************************/
 /*      FPU Save Functions     */
 /*******************************/
+
+static inline uint64_t vcpu_xsave_mask(const struct vcpu *v)
+{
+    if ( v->fpu_dirtied )
+        return v->arch.nonlazy_xstate_used ? XSTATE_ALL : XSTATE_LAZY;
+
+    return v->arch.nonlazy_xstate_used ? XSTATE_NONLAZY : 0;
+}
+
 /* Save x87 extended state */
 static inline void fpu_xsave(struct vcpu *v)
 {
     bool_t ok;
+    uint64_t mask = vcpu_xsave_mask(v);
 
-    /* XCR0 normally represents what guest OS set. In case of Xen itself,
-     * we set all accumulated feature mask before doing save/restore.
+    ASSERT(mask);
+    ASSERT(v->arch.xsave_area);
+    /*
+     * XCR0 normally represents what guest OS set. In case of Xen itself,
+     * we set the accumulated feature mask before doing save/restore.
      */
-    ok = set_xcr0(v->arch.xcr0_accum);
+    ok = set_xcr0(v->arch.xcr0_accum | XSTATE_FP_SSE);
     ASSERT(ok);
-    xsave(v, v->arch.nonlazy_xstate_used ? XSTATE_ALL : XSTATE_LAZY);
-    ok = set_xcr0(v->arch.xcr0);
+    xsave(v, mask);
+    ok = set_xcr0(v->arch.xcr0 ?: XSTATE_FP_SSE);
     ASSERT(ok);
 }
 
@@ -162,7 +175,7 @@ static inline void fpu_fxsave(struct vcpu *v)
          * addressing mode that doesn't require extended registers.
          */
         asm volatile ( REX64_PREFIX "fxsave (%1)"
-                       : "=m" (*fpu_ctxt) : "cdaSDb" (fpu_ctxt) );
+                       : "=m" (*fpu_ctxt) : "R" (fpu_ctxt) );
 
         /*
          * AMD CPUs don't save/restore FDP/FIP/FOP unless an exception
@@ -233,7 +246,7 @@ void vcpu_restore_fpu_lazy(struct vcpu *v)
     if ( v->fpu_dirtied )
         return;
 
-    if ( xsave_enabled(v) )
+    if ( cpu_has_xsave )
         fpu_xrstor(v, XSTATE_LAZY);
     else if ( v->fpu_initialised )
     {
@@ -255,7 +268,7 @@ void vcpu_restore_fpu_lazy(struct vcpu *v)
  */
 void vcpu_save_fpu(struct vcpu *v)
 {
-    if ( !v->fpu_dirtied )
+    if ( !v->fpu_dirtied && !v->arch.nonlazy_xstate_used )
         return;
 
     ASSERT(!is_idle_vcpu(v));
@@ -263,7 +276,7 @@ void vcpu_save_fpu(struct vcpu *v)
     /* This can happen, if a paravirtualised guest OS has set its CR0.TS. */
     clts();
 
-    if ( xsave_enabled(v) )
+    if ( cpu_has_xsave )
         fpu_xsave(v);
     else if ( cpu_has_fxsr )
         fpu_fxsave(v);

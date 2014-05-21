@@ -185,9 +185,9 @@ int create_irq(int node)
         desc->arch.used = IRQ_UNUSED;
         irq = ret;
     }
-    else if ( dom0 )
+    else if ( hardware_domain )
     {
-        ret = irq_permit_access(dom0, irq);
+        ret = irq_permit_access(hardware_domain, irq);
         if ( ret )
             printk(XENLOG_G_ERR
                    "Could not grant Dom0 access to IRQ%d (error %d)\n",
@@ -205,9 +205,9 @@ void destroy_irq(unsigned int irq)
 
     BUG_ON(!MSI_IRQ(irq));
 
-    if ( dom0 )
+    if ( hardware_domain )
     {
-        int err = irq_deny_access(dom0, irq);
+        int err = irq_deny_access(hardware_domain, irq);
 
         if ( err )
             printk(XENLOG_G_ERR
@@ -1068,14 +1068,14 @@ bool_t cpu_has_pending_apic_eoi(void)
 
 static inline void set_pirq_eoi(struct domain *d, unsigned int irq)
 {
-    if ( !is_hvm_domain(d) && d->arch.pv_domain.pirq_eoi_map )
-        set_bit(irq, d->arch.pv_domain.pirq_eoi_map);
+    if ( d->arch.pirq_eoi_map )
+        set_bit(irq, d->arch.pirq_eoi_map);
 }
 
 static inline void clear_pirq_eoi(struct domain *d, unsigned int irq)
 {
-    if ( !is_hvm_domain(d) && d->arch.pv_domain.pirq_eoi_map )
-        clear_bit(irq, d->arch.pv_domain.pirq_eoi_map);
+    if ( d->arch.pirq_eoi_map )
+        clear_bit(irq, d->arch.pirq_eoi_map);
 }
 
 static void set_eoi_ready(void *data);
@@ -1474,7 +1474,7 @@ int pirq_guest_unmask(struct domain *d)
         {
             pirq = pirqs[i]->pirq;
             if ( pirqs[i]->masked &&
-                 !test_bit(pirqs[i]->evtchn, &shared_info(d, evtchn_mask)) )
+                 !evtchn_port_is_masked(d, evtchn_from_port(d, pirqs[i]->evtchn)) )
                 pirq_guest_eoi(pirqs[i]);
         }
     } while ( ++pirq < d->nr_pirqs && n == ARRAY_SIZE(pirqs) );
@@ -1590,8 +1590,7 @@ int pirq_guest_bind(struct vcpu *v, struct pirq *pirq, int will_share)
             printk(XENLOG_G_INFO
                    "Cannot bind IRQ%d to dom%d. Out of memory.\n",
                    pirq->pirq, v->domain->domain_id);
-            rc = -ENOMEM;
-            goto out;
+            return -ENOMEM;
         }
 
         action = newaction;
@@ -2222,12 +2221,13 @@ static void dump_irqs(unsigned char key)
     int i, irq, pirq;
     struct irq_desc *desc;
     irq_guest_action_t *action;
+    struct evtchn *evtchn;
     struct domain *d;
     const struct pirq *info;
     unsigned long flags;
     char *ssid;
 
-    printk("Guest interrupt information:\n");
+    printk("IRQ information:\n");
 
     for ( irq = 0; irq < nr_irqs; irq++ )
     {
@@ -2262,16 +2262,11 @@ static void dump_irqs(unsigned char key)
                 d = action->guest[i];
                 pirq = domain_irq_to_pirq(d, irq);
                 info = pirq_info(d, pirq);
-                printk("%u:%3d(%c%c%c%c)",
+                evtchn = evtchn_from_port(d, info->evtchn);
+                printk("%u:%3d(%c%c%c)",
                        d->domain_id, pirq,
-                       (test_bit(info->evtchn,
-                                 &shared_info(d, evtchn_pending)) ?
-                        'P' : '-'),
-                       (test_bit(info->evtchn / BITS_PER_EVTCHN_WORD(d),
-                                 &vcpu_info(d->vcpu[0], evtchn_pending_sel)) ?
-                        'S' : '-'),
-                       (test_bit(info->evtchn, &shared_info(d, evtchn_mask)) ?
-                        'M' : '-'),
+                       (evtchn_port_is_pending(d, evtchn) ? 'P' : '-'),
+                       (evtchn_port_is_masked(d, evtchn) ? 'M' : '-'),
                        (info->masked ? 'M' : '-'));
                 if ( i != action->nr_guests )
                     printk(",");
@@ -2280,7 +2275,7 @@ static void dump_irqs(unsigned char key)
             printk("\n");
         }
         else if ( desc->action )
-            print_symbol("%s\n", (unsigned long)desc->action->handler);
+            printk("%ps()\n", desc->action->handler);
         else
             printk("mapped, unbound\n");
 
@@ -2288,6 +2283,11 @@ static void dump_irqs(unsigned char key)
 
         xfree(ssid);
     }
+
+    printk("Direct vector information:\n");
+    for ( i = FIRST_DYNAMIC_VECTOR; i < NR_VECTORS; ++i )
+        if ( direct_apic_vector[i] )
+            printk("   %#02x -> %ps()\n", i, direct_apic_vector[i]);
 
     dump_ioapic_irq_info();
 }

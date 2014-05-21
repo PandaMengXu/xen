@@ -1421,7 +1421,7 @@ static void __init setup_ioapic_ids_from_mpc(void)
                 if (!physid_isset(i, phys_id_present_map))
                     break;
             if (i >= get_physical_broadcast())
-                panic("Max APIC ID exceeded!\n");
+                panic("Max APIC ID exceeded");
             printk(KERN_ERR "... fixing up to %d. (tell your hw vendor)\n",
                    i);
             mp_ioapics[apic].mpc_apicid = i;
@@ -1828,7 +1828,7 @@ static void __init unlock_ExtINT_logic(void)
 
     pin = find_isa_irq_pin(8, mp_INT);
     apic = find_isa_irq_apic(8, mp_INT);
-    if (pin == -1)
+    if ( pin == -1 || apic == -1 )
         return;
 
     entry0 = ioapic_read_entry(apic, pin, 0);
@@ -2135,7 +2135,7 @@ int __init io_apic_get_unique_id (int ioapic, int apic_id)
         }
 
         if (i == get_physical_broadcast())
-            panic("Max apic_id exceeded!\n");
+            panic("Max apic_id exceeded");
 
         printk(KERN_WARNING "IOAPIC[%d]: apic_id %d already used, "
                "trying %d\n", ioapic, apic_id, i);
@@ -2363,7 +2363,7 @@ int ioapic_guest_write(unsigned long physbase, unsigned int reg, u32 val)
      * that dom0 pirq == irq.
      */
     pirq = (irq >= 256) ? irq : rte.vector;
-    if ( (pirq < 0) || (pirq >= dom0->nr_pirqs) )
+    if ( (pirq < 0) || (pirq >= hardware_domain->nr_pirqs) )
         return -EINVAL;
     
     if ( desc->action )
@@ -2399,10 +2399,10 @@ int ioapic_guest_write(unsigned long physbase, unsigned int reg, u32 val)
 
         printk(XENLOG_INFO "allocated vector %02x for irq %d\n", ret, irq);
     }
-    spin_lock(&dom0->event_lock);
-    ret = map_domain_pirq(dom0, pirq, irq,
+    spin_lock(&hardware_domain->event_lock);
+    ret = map_domain_pirq(hardware_domain, pirq, irq,
             MAP_PIRQ_TYPE_GSI, NULL);
-    spin_unlock(&dom0->event_lock);
+    spin_unlock(&hardware_domain->event_lock);
     if ( ret < 0 )
         return ret;
 

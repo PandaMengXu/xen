@@ -189,7 +189,7 @@ static struct xc_interface_core *xc_interface_open_common(xentoollog_logger *log
 err_put_iface:
     xc_osdep_put(&xch->osdep);
  err:
-    if (xch) xtl_logger_destroy(xch->error_handler_tofree);
+    xtl_logger_destroy(xch->error_handler_tofree);
     if (xch != &xch_buf) free(xch);
     return NULL;
 }
@@ -198,13 +198,16 @@ static int xc_interface_close_common(xc_interface *xch)
 {
     int rc = 0;
 
+    if (!xch)
+	return 0;
+
+    rc = xch->ops->close(xch, xch->ops_handle);
+    if (rc) PERROR("Could not close hypervisor interface");
+
     xc__hypercall_buffer_cache_release(xch);
 
     xtl_logger_destroy(xch->dombuild_logger_tofree);
     xtl_logger_destroy(xch->error_handler_tofree);
-
-    rc = xch->ops->close(xch, xch->ops_handle);
-    if (rc) PERROR("Could not close hypervisor interface");
 
     free(xch);
     return rc;
@@ -585,10 +588,6 @@ int xc_get_pfn_list(xc_interface *xch,
     DECLARE_HYPERCALL_BOUNCE(pfn_buf, max_pfns * sizeof(*pfn_buf), XC_HYPERCALL_BUFFER_BOUNCE_OUT);
     int ret;
 
-#ifdef VALGRIND
-    memset(pfn_buf, 0, max_pfns * sizeof(*pfn_buf));
-#endif
-
     if ( xc_hypercall_bounce_pre(xch, pfn_buf) )
     {
         PERROR("xc_get_pfn_list: pfn_buf bounce failed");
@@ -609,11 +608,9 @@ int xc_get_pfn_list(xc_interface *xch,
 
 long xc_get_tot_pages(xc_interface *xch, uint32_t domid)
 {
-    DECLARE_DOMCTL;
-    domctl.cmd = XEN_DOMCTL_getdomaininfo;
-    domctl.domain = (domid_t)domid;
-    return (do_domctl(xch, &domctl) < 0) ?
-        -1 : domctl.u.getdomaininfo.tot_pages;
+    xc_dominfo_t info;
+    return (xc_domain_getinfo(xch, domid, 1, &info) != 1) ?
+        -1 : info.nr_pages;
 }
 
 int xc_copy_to_domain_page(xc_interface *xch,
@@ -627,6 +624,7 @@ int xc_copy_to_domain_page(xc_interface *xch,
         return -1;
     memcpy(vaddr, src_page, PAGE_SIZE);
     munmap(vaddr, PAGE_SIZE);
+    xc_domain_cacheflush(xch, domid, dst_pfn, 1);
     return 0;
 }
 
@@ -640,6 +638,7 @@ int xc_clear_domain_page(xc_interface *xch,
         return -1;
     memset(vaddr, 0, PAGE_SIZE);
     munmap(vaddr, PAGE_SIZE);
+    xc_domain_cacheflush(xch, domid, dst_pfn, 1);
     return 0;
 }
 
@@ -703,11 +702,6 @@ int xc_version(xc_interface *xch, int cmd, void *arg)
         PERROR("Could not bounce buffer for version hypercall");
         return -ENOMEM;
     }
-
-#ifdef VALGRIND
-    if (sz != 0)
-        memset(hypercall_bounce_get(bounce), 0, sz);
-#endif
 
     rc = do_xen_version(xch, cmd, HYPERCALL_BUFFER(arg));
 

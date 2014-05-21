@@ -1,5 +1,6 @@
 #################################
 <<<<<<< HEAD
+<<<<<<< HEAD
 __  __            _  _    _____                
 \ \/ /___ _ __   | || |  |___ /
  \  // _ \ '_ \  | || |_   |_ \
@@ -12,6 +13,13 @@ __  __            _  _   _  _                         _        _     _
  \  // _ \ '_ \  | || |_| || |_ _____| | | | '_ \/ __| __/ _` | '_ \| |/ _ \
  /  \  __/ | | | |__   _|__   _|_____| |_| | | | \__ \ || (_| | |_) | |  __/
 /_/\_\___|_| |_|    |_|(_) |_|        \__,_|_| |_|___/\__\__,_|_.__/|_|\___|
+=======
+__  __            _  _    ____                        _        _     _      
+\ \/ /___ _ __   | || |  | ___|       _   _ _ __  ___| |_ __ _| |__ | | ___ 
+ \  // _ \ '_ \  | || |_ |___ \ _____| | | | '_ \/ __| __/ _` | '_ \| |/ _ \
+ /  \  __/ | | | |__   _| ___) |_____| |_| | | | \__ \ || (_| | |_) | |  __/
+/_/\_\___|_| |_|    |_|(_)____/       \__,_|_| |_|___/\__\__,_|_.__/|_|\___|
+>>>>>>> cf37a923eae411d420f6519e6dcfd13e25cf276c
 
 >>>>>>> 0c006b41a283a0a569c863d44abde5aa5750ae01
 #################################
@@ -60,7 +68,7 @@ provided by your OS distributor:
     * Development install of uuid (e.g. uuid-dev)
     * Development install of yajl (e.g. libyajl-dev)
     * Development install of libaio (e.g. libaio-dev) version 0.3.107 or
-      greater. Set CONFIG_SYSTEM_LIBAIO in .config if this is not available.
+      greater.
     * Development install of GLib v2.0 (e.g. libglib2.0-dev)
     * Development install of Pixman (e.g. libpixman-1-dev)
     * pkg-config
@@ -80,6 +88,7 @@ disabled at compile time:
       includes the alternative ocaml xenstored.
     * cmake (if building vtpm stub domains)
     * markdown
+    * figlet (for generating the traditional Xen start of day banner)
 
 Second, you need to acquire a suitable kernel for use in domain 0. If
 possible you should use a kernel provided by your OS distributor. If

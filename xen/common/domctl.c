@@ -33,9 +33,9 @@
 static DEFINE_SPINLOCK(domctl_lock);
 DEFINE_SPINLOCK(vcpu_alloc_lock);
 
-int bitmap_to_xenctl_bitmap(struct xenctl_bitmap *xenctl_bitmap,
-                            const unsigned long *bitmap,
-                            unsigned int nbits)
+static int bitmap_to_xenctl_bitmap(struct xenctl_bitmap *xenctl_bitmap,
+                                   const unsigned long *bitmap,
+                                   unsigned int nbits)
 {
     unsigned int guest_bytes, copy_bytes, i;
     uint8_t zero = 0;
@@ -63,9 +63,9 @@ int bitmap_to_xenctl_bitmap(struct xenctl_bitmap *xenctl_bitmap,
     return err;
 }
 
-int xenctl_bitmap_to_bitmap(unsigned long *bitmap,
-                            const struct xenctl_bitmap *xenctl_bitmap,
-                            unsigned int nbits)
+static int xenctl_bitmap_to_bitmap(unsigned long *bitmap,
+                                   const struct xenctl_bitmap *xenctl_bitmap,
+                                   unsigned int nbits)
 {
     unsigned int guest_bytes, copy_bytes;
     int err = 0;
@@ -118,15 +118,15 @@ int xenctl_bitmap_to_cpumask(cpumask_var_t *cpumask,
     return err;
 }
 
-int nodemask_to_xenctl_bitmap(struct xenctl_bitmap *xenctl_nodemap,
-                              const nodemask_t *nodemask)
+static int nodemask_to_xenctl_bitmap(struct xenctl_bitmap *xenctl_nodemap,
+                                     const nodemask_t *nodemask)
 {
     return bitmap_to_xenctl_bitmap(xenctl_nodemap, nodes_addr(*nodemask),
                                    MAX_NUMNODES);
 }
 
-int xenctl_bitmap_to_nodemask(nodemask_t *nodemask,
-                              const struct xenctl_bitmap *xenctl_nodemap)
+static int xenctl_bitmap_to_nodemask(nodemask_t *nodemask,
+                                     const struct xenctl_bitmap *xenctl_nodemap)
 {
     return xenctl_bitmap_to_bitmap(nodes_addr(*nodemask), xenctl_nodemap,
                                    MAX_NUMNODES);
@@ -185,8 +185,17 @@ void getdomaininfo(struct domain *d, struct xen_domctl_getdomaininfo *info)
         (d->debugger_attached           ? XEN_DOMINF_debugged : 0) |
         d->shutdown_code << XEN_DOMINF_shutdownshift;
 
-    if ( is_hvm_domain(d) )
+    switch ( d->guest_type )
+    {
+    case guest_type_hvm:
         info->flags |= XEN_DOMINF_hvm_guest;
+        break;
+    case guest_type_pvh:
+        info->flags |= XEN_DOMINF_pvh_guest;
+        break;
+    default:
+        break;
+    }
 
     xsm_security_domaininfo(d, info);
 
@@ -230,15 +239,15 @@ static unsigned int default_vcpu0_location(cpumask_t *online)
      */
     cpumask_copy(&cpu_exclude_map, per_cpu(cpu_sibling_mask, 0));
     cpu = cpumask_first(&cpu_exclude_map);
-    if ( cpumask_weight(&cpu_exclude_map) > 1 )
-        cpu = cpumask_next(cpu, &cpu_exclude_map);
-    ASSERT(cpu < nr_cpu_ids);
+    i = cpumask_next(cpu, &cpu_exclude_map);
+    if ( i < nr_cpu_ids )
+        cpu = i;
     for_each_cpu(i, online)
     {
         if ( cpumask_test_cpu(i, &cpu_exclude_map) )
             continue;
         if ( (i == cpumask_first(per_cpu(cpu_sibling_mask, i))) &&
-             (cpumask_weight(per_cpu(cpu_sibling_mask, i)) > 1) )
+             (cpumask_next(i, per_cpu(cpu_sibling_mask, i)) < nr_cpu_ids) )
             continue;
         cpumask_or(&cpu_exclude_map, &cpu_exclude_map,
                    per_cpu(cpu_sibling_mask, i));
@@ -325,10 +334,6 @@ long do_domctl(XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
         unsigned int vcpu = op->u.vcpucontext.vcpu;
         struct vcpu *v;
 
-        ret = -ESRCH;
-        if ( d == NULL )
-            break;
-
         ret = -EINVAL;
         if ( (d == current->domain) || /* no domain_pause() */
              (vcpu >= d->max_vcpus) || ((v = d->vcpu[vcpu]) == NULL) )
@@ -337,7 +342,7 @@ long do_domctl(XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
         if ( guest_handle_is_null(op->u.vcpucontext.ctxt) )
         {
             ret = vcpu_reset(v);
-            if ( ret == -EAGAIN )
+            if ( ret == -ERESTART )
                 ret = hypercall_create_continuation(
                           __HYPERVISOR_domctl, "h", u_domctl);
             break;
@@ -369,7 +374,7 @@ long do_domctl(XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
             ret = arch_set_info_guest(v, c);
             domain_unpause(d);
 
-            if ( ret == -EAGAIN )
+            if ( ret == -ERESTART )
                 ret = hypercall_create_continuation(
                           __HYPERVISOR_domctl, "h", u_domctl);
         }
@@ -412,8 +417,11 @@ long do_domctl(XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
         ret = -EINVAL;
         if ( supervisor_mode_kernel ||
              (op->u.createdomain.flags &
-             ~(XEN_DOMCTL_CDF_hvm_guest | XEN_DOMCTL_CDF_hap |
-               XEN_DOMCTL_CDF_s3_integrity | XEN_DOMCTL_CDF_oos_off)) )
+             ~(XEN_DOMCTL_CDF_hvm_guest
+               | XEN_DOMCTL_CDF_pvh_guest
+               | XEN_DOMCTL_CDF_hap
+               | XEN_DOMCTL_CDF_s3_integrity
+               | XEN_DOMCTL_CDF_oos_off)) )
             break;
 
         dom = op->domain;
@@ -428,7 +436,7 @@ long do_domctl(XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
             for ( dom = rover + 1; dom != rover; dom++ )
             {
                 if ( dom == DOMID_FIRST_RESERVED )
-                    dom = 0;
+                    dom = 1;
                 if ( is_free_domid(dom) )
                     break;
             }
@@ -440,9 +448,15 @@ long do_domctl(XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
             rover = dom;
         }
 
+        if ( (op->u.createdomain.flags & XEN_DOMCTL_CDF_hvm_guest)
+             && (op->u.createdomain.flags & XEN_DOMCTL_CDF_pvh_guest) )
+            return -EINVAL;
+
         domcr_flags = 0;
         if ( op->u.createdomain.flags & XEN_DOMCTL_CDF_hvm_guest )
             domcr_flags |= DOMCRF_hvm;
+        if ( op->u.createdomain.flags & XEN_DOMCTL_CDF_pvh_guest )
+            domcr_flags |= DOMCRF_pvh;
         if ( op->u.createdomain.flags & XEN_DOMCTL_CDF_hap )
             domcr_flags |= DOMCRF_hap;
         if ( op->u.createdomain.flags & XEN_DOMCTL_CDF_s3_integrity )
@@ -661,11 +675,9 @@ long do_domctl(XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
         struct vcpu         *v;
 
         ret = -EINVAL;
-        if ( op->u.vcpucontext.vcpu >= d->max_vcpus )
-            goto getvcpucontext_out;
-
-        ret = -ESRCH;
-        if ( (v = d->vcpu[op->u.vcpucontext.vcpu]) == NULL )
+        if ( op->u.vcpucontext.vcpu >= d->max_vcpus ||
+             (v = d->vcpu[op->u.vcpucontext.vcpu]) == NULL ||
+             v == current ) /* no vcpu_pause() */
             goto getvcpucontext_out;
 
         ret = -ENODATA;
@@ -680,14 +692,12 @@ long do_domctl(XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
         if ( (c.nat = xmalloc(struct vcpu_guest_context)) == NULL )
             goto getvcpucontext_out;
 
-        if ( v != current )
-            vcpu_pause(v);
+        vcpu_pause(v);
 
         arch_get_info_guest(v, c);
         ret = 0;
 
-        if ( v != current )
-            vcpu_unpause(v);
+        vcpu_unpause(v);
 
 #ifdef CONFIG_COMPAT
         if ( !is_pv_32on64_vcpu(v) )
@@ -780,7 +790,8 @@ long do_domctl(XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
 
         if ( pirq >= d->nr_pirqs )
             ret = -EINVAL;
-        else if ( xsm_irq_permission(XSM_HOOK, d, pirq, allow) )
+        else if ( !pirq_access_permitted(current->domain, pirq) ||
+                  xsm_irq_permission(XSM_HOOK, d, pirq, allow) )
             ret = -EPERM;
         else if ( allow )
             ret = pirq_permit_access(d, pirq);
@@ -799,12 +810,18 @@ long do_domctl(XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
         if ( (mfn + nr_mfns - 1) < mfn ) /* wrap? */
             break;
 
-        if ( xsm_iomem_permission(XSM_HOOK, d, mfn, mfn + nr_mfns - 1, allow) )
+        if ( !iomem_access_permitted(current->domain,
+                                     mfn, mfn + nr_mfns - 1) ||
+             xsm_iomem_permission(XSM_HOOK, d, mfn, mfn + nr_mfns - 1, allow) )
             ret = -EPERM;
         else if ( allow )
             ret = iomem_permit_access(d, mfn, mfn + nr_mfns - 1);
         else
             ret = iomem_deny_access(d, mfn, mfn + nr_mfns - 1);
+#ifdef CONFIG_X86
+        if ( !ret )
+            memory_type_changed(d);
+#endif
     }
     break;
 
@@ -860,6 +877,14 @@ long do_domctl(XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
     {
         uint32_t virq = op->u.set_virq_handler.virq;
         ret = set_global_virq_handler(d, virq);
+    }
+    break;
+
+    case XEN_DOMCTL_set_max_evtchn:
+    {
+        d->max_evtchn_port = min_t(unsigned int,
+                                   op->u.set_max_evtchn.max_port,
+                                   INT_MAX);
     }
     break;
 

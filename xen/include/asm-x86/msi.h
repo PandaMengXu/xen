@@ -49,7 +49,7 @@
 #define MSI_ADDR_REDIRECTION_LOWPRI (1 << MSI_ADDR_REDIRECTION_SHIFT)
 
 #define MSI_ADDR_DEST_ID_SHIFT		12
-#define	 MSI_ADDR_DEST_ID_MASK		0x00ffff0
+#define	 MSI_ADDR_DEST_ID_MASK		0x00ff000
 #define  MSI_ADDR_DEST_ID(dest)		(((dest) << MSI_ADDR_DEST_ID_SHIFT) & MSI_ADDR_DEST_ID_MASK)
 
 /* MAX fixed pages reserved for mapping MSIX tables. */
@@ -168,7 +168,7 @@ int msi_free_irq(struct msi_desc *entry);
  * MSI Defined Data Structures
  */
 
-struct msg_data {
+struct __packed msg_data {
 #if defined(__LITTLE_ENDIAN_BITFIELD)
 	__u32	vector		:  8;
 	__u32	delivery_mode	:  3;	/* 000b: FIXED | 001b: lowest prior */
@@ -186,9 +186,9 @@ struct msg_data {
 #else
 #error "Bitfield endianness not defined! Check your byteorder.h"
 #endif
-} __attribute__ ((packed));
+};
 
-struct msg_address {
+struct __packed msg_address {
 	union {
 		struct {
 #if defined(__LITTLE_ENDIAN_BITFIELD)
@@ -212,10 +212,27 @@ struct msg_address {
        		__u32  value;
 	}lo_address;
 	__u32 	hi_address;
-} __attribute__ ((packed));
+};
+
+#define MAX_MSIX_TABLE_ENTRIES  (PCI_MSIX_FLAGS_QSIZE + 1)
+#define MAX_MSIX_TABLE_PAGES    PFN_UP(MAX_MSIX_TABLE_ENTRIES * \
+                                       PCI_MSIX_ENTRY_SIZE + \
+                                       (~PCI_MSIX_BIRMASK & (PAGE_SIZE - 1)))
+
+struct arch_msix {
+    unsigned int nr_entries, used_entries;
+    struct {
+        unsigned long first, last;
+    } table, pba;
+    int table_refcnt[MAX_MSIX_TABLE_PAGES];
+    int table_idx[MAX_MSIX_TABLE_PAGES];
+    spinlock_t table_lock;
+    domid_t warned;
+};
 
 void early_msi_init(void);
-void msi_compose_msg(struct irq_desc *, struct msi_msg *);
+void msi_compose_msg(unsigned vector, const cpumask_t *mask,
+                     struct msi_msg *msg);
 void __msi_set_enable(u16 seg, u8 bus, u8 slot, u8 func, int pos, int enable);
 void mask_msi_irq(struct irq_desc *);
 void unmask_msi_irq(struct irq_desc *);

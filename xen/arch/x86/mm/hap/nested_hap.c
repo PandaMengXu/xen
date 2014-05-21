@@ -79,7 +79,7 @@
 
 void
 nestedp2m_write_p2m_entry(struct p2m_domain *p2m, unsigned long gfn,
-    l1_pgentry_t *p, mfn_t table_mfn, l1_pgentry_t new, unsigned int level)
+    l1_pgentry_t *p, l1_pgentry_t new, unsigned int level)
 {
     struct domain *d = p2m->domain;
     uint32_t old_flags;
@@ -103,7 +103,7 @@ nestedhap_fix_p2m(struct vcpu *v, struct p2m_domain *p2m,
                   paddr_t L2_gpa, paddr_t L0_gpa,
                   unsigned int page_order, p2m_type_t p2mt, p2m_access_t p2ma)
 {
-    int rv = 1;
+    int rc = 0;
     ASSERT(p2m);
     ASSERT(p2m->set_entry);
 
@@ -124,16 +124,17 @@ nestedhap_fix_p2m(struct vcpu *v, struct p2m_domain *p2m,
         gfn = (L2_gpa >> PAGE_SHIFT) & mask;
         mfn = _mfn((L0_gpa >> PAGE_SHIFT) & mask);
 
-        rv = set_p2m_entry(p2m, gfn, mfn, page_order, p2mt, p2ma);
+        rc = p2m_set_entry(p2m, gfn, mfn, page_order, p2mt, p2ma);
     }
 
     p2m_unlock(p2m);
 
-    if (rv == 0) {
+    if ( rc )
+    {
         gdprintk(XENLOG_ERR,
-		"failed to set entry for %#"PRIx64" -> %#"PRIx64"\n",
-		L2_gpa, L0_gpa);
-        BUG();
+                 "failed to set entry for %#"PRIx64" -> %#"PRIx64" rc:%d\n",
+                 L2_gpa, L0_gpa, rc);
+        domain_crash(p2m->domain);
     }
 }
 
@@ -170,8 +171,11 @@ nestedhap_walk_L0_p2m(struct p2m_domain *p2m, paddr_t L1_gpa, paddr_t *L0_gpa,
     mfn = get_gfn_type_access(p2m, L1_gpa >> PAGE_SHIFT, p2mt, p2ma,
                               0, page_order);
 
+    rc = NESTEDHVM_PAGEFAULT_DIRECT_MMIO;
+    if ( *p2mt == p2m_mmio_direct )
+        goto direct_mmio_out;
     rc = NESTEDHVM_PAGEFAULT_MMIO;
-    if ( p2m_is_mmio(*p2mt) )
+    if ( *p2mt == p2m_mmio_dm )
         goto out;
 
     rc = NESTEDHVM_PAGEFAULT_L0_ERROR;
@@ -184,8 +188,9 @@ nestedhap_walk_L0_p2m(struct p2m_domain *p2m, paddr_t L1_gpa, paddr_t *L0_gpa,
     if ( !mfn_valid(mfn) )
         goto out;
 
-    *L0_gpa = (mfn_x(mfn) << PAGE_SHIFT) + (L1_gpa & ~PAGE_MASK);
     rc = NESTEDHVM_PAGEFAULT_DONE;
+direct_mmio_out:
+    *L0_gpa = (mfn_x(mfn) << PAGE_SHIFT) + (L1_gpa & ~PAGE_MASK);
 out:
     __put_gfn(p2m, L1_gpa >> PAGE_SHIFT);
     return rc;
@@ -245,6 +250,8 @@ nestedhvm_hap_nested_page_fault(struct vcpu *v, paddr_t *L2_gpa,
         break;
     case NESTEDHVM_PAGEFAULT_MMIO:
         return rv;
+    case NESTEDHVM_PAGEFAULT_DIRECT_MMIO:
+        break;
     default:
         BUG();
         break;

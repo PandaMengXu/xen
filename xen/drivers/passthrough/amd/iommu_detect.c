@@ -95,7 +95,7 @@ void __init get_iommu_features(struct amd_iommu *iommu)
 
     while ( feature_str[i] )
     {
-        if ( iommu_has_feature(iommu, i) )
+        if ( amd_iommu_has_feature(iommu, i) )
             printk( " %s\n", feature_str[i]);
         i++;
     }
@@ -145,11 +145,11 @@ int __init amd_iommu_detect_one_acpi(
     rt = get_iommu_capabilities(iommu->seg, bus, dev, func,
                                 iommu->cap_offset, iommu);
     if ( rt )
-        return -ENODEV;
+        goto out;
 
     rt = get_iommu_msi_capabilities(iommu->seg, bus, dev, func, iommu);
     if ( rt )
-        return -ENODEV;
+        goto out;
 
     rt = pci_ro_device(iommu->seg, bus, PCI_DEVFN(dev, func));
     if ( rt )
@@ -158,6 +158,11 @@ int __init amd_iommu_detect_one_acpi(
                iommu->seg, bus, dev, func, rt);
 
     list_add_tail(&iommu->list, &amd_iommu_head);
+    rt = 0;
 
-    return 0;
+ out:
+    if ( rt )
+        xfree(iommu);
+
+    return rt;
 }
