@@ -1,0 +1,16 @@
+This README records/describes the purpose of this branch.
+
+Note:
+All branch cache* uses sisu's old implementation, the scheduler may have some bugs, should merge with the latest rtxen_* branch when cache tools are completed.
+
+Branch cache:
+This is the master of the cache effort in RT-Xen. Merge into this branch all of workable code
+
+Branch cache-base-v0.1:
+this branch has the virgin xen-mfndump.c tool developed by Dario
+
+Branch cache-rtxen-v0.1:
+This branch modifies the xen-mfndump.c tool to dump the current used cache color/memory pages in the system.
+
+Branch rtxen_v2.3_cpupool:
+This branch has the rtglobal scheduler with cpupool support; it also supports: switch between RM/EDF, display each vcpu's parameters
