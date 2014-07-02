@@ -1,4 +1,5 @@
 /*This tool only works for 32 bit right now! needs change the type for x86_32 bit*/
+#define X86_64
 #ifdef X86_64
 
 #include <xenctrl.h>
@@ -21,11 +22,12 @@ int help_func(int argc, char *argv[])
             "Commands:\n"
             "  help                      show this help\n"
             "  dump-m2p                  show M2P\n"
-            "  dump-p2m    <domid>       show P2M of <domid>\n"
-            "  dump-p2m-pgc <domid>      show P2M and page_count of <domid>\n"
-            "  dump-ptes   <domid> <mfn> show the PTEs in <mfn>\n"
-            "  lookup-pte  <domid> <mfn> find the PTE mapping <mfn>\n"
-            "  memcmp-mfns <domid1> <mfn1> <domid2> <mfn2>\n"
+            "  dump-p2m         <domid>       show P2M of <domid>\n"
+            "  dump-p2m-cache   <domid>       show cache color of <domid>\n"
+            "  dump-p2m-pgc     <domid>      show P2M and page_count of <domid>\n"
+            "  dump-ptes        <domid> <mfn> show the PTEs in <mfn>\n"
+            "  lookup-pte       <domid> <mfn> find the PTE mapping <mfn>\n"
+            "  memcmp-mfns      <domid1> <mfn1> <domid2> <mfn2>\n"
             "                            compare content of <mfn1> & <mfn2>\n"
            );
 
@@ -60,6 +62,73 @@ int dump_m2p_func(int argc, char *argv[])
     printf(" --- End of M2P ---\n");
 
     munmap(m2p_table, M2P_SIZE(max_mfn));
+    return 0;
+}
+
+/*
+ * dump the cache color that *may* be used by the domID
+ */
+int dump_p2m_cache_func(int argc, char *argv[])
+{
+    struct xc_domain_meminfo minfo;
+    xc_dominfo_t info;
+    unsigned long i, ci;
+    int domid;
+    char cc_status[RTXEN_L3CACHE_COLORS]; /*record which cache color is used*/
+
+    if ( argc < 1 )
+    {
+        help_func(0, NULL);
+        return 1;
+    }
+    domid = atoi(argv[0]);
+
+    if ( xc_domain_getinfo(xch, domid, 1, &info) != 1 ||
+         info.domid != domid )
+    {
+        ERROR("Failed to obtain info for domain %d\n", domid);
+        return -1;
+    }
+
+    /* Meng:Print dominfo*/
+    //printf(" ---Dumping xc_dominfo for domain %d ---\n", domid);
+    //printf("nr_pages=%lu, nr_outstanding_pages=%lu, nr_shared_pages=%lu, nr_paged_pages=%lu\n",
+    //        info.nr_pages,info.nr_outstanding_pages, info.nr_shared_pages, info.nr_paged_pages);
+
+    /* Retrieve all the info about the domain's memory */
+    memset(&minfo, 0, sizeof(minfo));
+    if ( xc_map_domain_meminfo(xch, domid, &minfo) )
+    {
+        ERROR("Could not map domain %d memory information\n", domid);
+        return -1;
+    }
+
+    memset(cc_status, 0, sizeof(cc_status));
+    for (ci = 0; ci < RTXEN_L3CACHE_COLORS; ci++)
+    {
+        for ( i = 0; i < minfo.p2m_size; i++ )
+        {
+            if( RTXEN_GET_L3CACHE_COLOR(minfo.p2m_table[i]) == ci )
+                cc_status[ci] = 1;
+        }
+    }
+
+    printf(" --- Dumping Cache Colors for domain %d ---\n", domid);
+    printf(" Index of Cache Colors that may be used by domain %d\n", domid);
+    for (ci = 0; ci < RTXEN_L3CACHE_COLORS; ci++)
+    {
+        if( cc_status[ci] == 1 )
+            printf("%lu ", ci);
+    }
+    printf("\n");
+    printf(" Index of Cache Colors that are NOT used by domain %d\n", domid);
+    for (ci = 0; ci < RTXEN_L3CACHE_COLORS; ci++)
+    {
+        if( cc_status[ci] == 0 )
+            printf("%lu ", ci);
+    }
+    printf("\n");
+
     return 0;
 }
 
@@ -423,10 +492,12 @@ int dump_p2m_pgc_func(int argc, char *argv[])
                pagetype >> XEN_DOMCTL_PFINFO_LTAB_SHIFT, minfo.pfn_type[i]);
 
         /* Meng: is page in use */
+        /*
         if( pagetype & XEN_DOMCTL_PFINFO_INUSE )
             printf(" [inuse]");
         else
             printf(" [idle]");
+        */
 
         /* Meng:dump mfa type(12 highest bit + 12lowest bit) and PGT_COUNT*/
         //printf(" pfn_type=0x%lx pfn_type&PGT_count_mask=0x%lx",minfo.pfn_type[i], minfo.pfn_type[i] & PGT_count_mask);
@@ -478,6 +549,7 @@ struct {
     { "help", help_func },
     { "dump-m2p", dump_m2p_func },
     { "dump-p2m", dump_p2m_func },
+    { "dump-p2m-cache", dump_p2m_cache_func },
     { "dump-p2m-pgc", dump_p2m_pgc_func},
     { "dump-ptes", dump_ptes_func },
     { "lookup-pte", lookup_pte_func },

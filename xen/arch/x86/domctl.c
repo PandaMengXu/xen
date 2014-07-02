@@ -159,7 +159,7 @@ long arch_do_domctl(
 
                 if ( copy_from_guest_offset(arr,
                                             domctl->u.getpageframeinfo3.array,
-                                            n, k) )
+                                            n, k) ) /* n is index to start, k is the size to copy*/
                 {
                     ret = -EFAULT;
                     break;
@@ -198,18 +198,16 @@ long arch_do_domctl(
                             break;
                         }
 
-			//if ( (page->u.inuse.type_info & PGT_count_mask) != 0 ) /* Meng: borrow pin bit as inuse bit*/
-			if (page_state_is(page,inuse))
-			    type |= XEN_DOMCTL_PFINFO_INUSE;
-                       
-			 /*if ( page->u.inuse.type_info & PGT_pinned )
+                        //if ( (page->u.inuse.type_info & PGT_count_mask) != 0 ) /* Meng: borrow pin bit as inuse bit*/
+                        /*if (page_state_is(page,inuse))
+                            type |= XEN_DOMCTL_PFINFO_INUSE;
+                        */
+                         if ( page->u.inuse.type_info & PGT_pinned )
                             type |= XEN_DOMCTL_PFINFO_LPINTAB;
-			*/
+                        
                         if ( page->count_info & PGC_broken )
                             type = XEN_DOMCTL_PFINFO_BROKEN;
 
-			//if ( (page->u.inuse.type_info & PGT_count_mask) != 0 )
-			//    type |= XEN_DOMCTL_PFINFO_INUSE;
                     }
 
                     if ( page )
@@ -350,8 +348,8 @@ long arch_do_domctl(
                 ret = -EFAULT;
                 break;
             }
-			++i;
-		}
+                        ++i;
+                }
 
         spin_unlock(&d->page_alloc_lock);
 

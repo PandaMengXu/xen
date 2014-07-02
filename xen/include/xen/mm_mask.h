@@ -10,5 +10,14 @@
 #define PGT_count_mask    ((1UL<<PGT_count_width)-1)
 
 
-#endif
+/* 12MB LLC consists of 6 2MB cache, so both machine has same cache arch? */
+#define RTXEN_L3CACHE_SIZE      (12*1024*1024 / 6)
+#define RTXEN_L3CACHE_LINESIZE  (64)
+#define RTXEN_L3CACHE_LINEBITS  (6)
+#define RTXEN_L3CACHE_ASSOC     (16)
+#define RTXEN_L3CACHE_COLORS    (2*1024)
+#define RTXEN_L3CACHE_COLOR_MASK ((RTXEN_L3CACHE_COLORS-1) << 6)
+#define RTXEN_GET_L3CACHE_COLOR(p)  ((p & RTXEN_L3CACHE_COLOR_MASK) >> 6)
 
+
+#endif
