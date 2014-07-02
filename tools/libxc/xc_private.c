@@ -27,8 +27,6 @@
 #include <pthread.h>
 #include <assert.h>
 
-#include "rtxen_perf_counter_func.h"
-
 #ifndef __MINIOS__
 #include <dlfcn.h>
 #endif
@@ -405,6 +403,23 @@ int xc_get_pfn_type_batch(xc_interface *xch, uint32_t dom,
     DECLARE_HYPERCALL_BOUNCE(arr, sizeof(*arr) * num, XC_HYPERCALL_BUFFER_BOUNCE_BOTH);
     if ( xc_hypercall_bounce_pre(xch, arr) )
         return -1;
+    domctl.cmd = XEN_DOMCTL_getpageframeinfo4;
+    domctl.domain = (domid_t)dom;
+    domctl.u.getpageframeinfo4.num = num;
+    set_xen_guest_handle(domctl.u.getpageframeinfo4.array, arr);
+    rc = do_domctl(xch, &domctl);
+    xc_hypercall_bounce_post(xch, arr);
+    return rc;
+}
+
+int xc_get_pfn_status_batch(xc_interface *xch, uint32_t dom,
+                          unsigned int num, xen_pfn_t *arr)
+{
+    int rc;
+    DECLARE_DOMCTL;
+    DECLARE_HYPERCALL_BOUNCE(arr, sizeof(*arr) * num, XC_HYPERCALL_BUFFER_BOUNCE_BOTH);
+    if ( xc_hypercall_bounce_pre(xch, arr) )
+        return -1;
     domctl.cmd = XEN_DOMCTL_getpageframeinfo3;/*Meng: different flag type based on this param*/
     domctl.domain = (domid_t)dom;
     domctl.u.getpageframeinfo3.num = num;
@@ -528,46 +543,6 @@ int do_memory_op(xc_interface *xch, int cmd, void *arg, size_t len)
     xc_hypercall_bounce_post(xch, arg);
  out1:
     return ret;
-}
-
-int xc_count_perf(xc_interface *xch, rtxen_perf_counter_t* perf_counter, int delay_ms)
-{
-    int cpu_id;
-    rtxen_perf_counter_t perf_counter_start = *perf_counter;
-    rtxen_perf_counter_t perf_counter_finish = *perf_counter;
-   
-//    perf_counter_start.op = (SET_MSR | READ_MSR);
-    /*cannot be both read and set. TODO forbid read and set at the same time*/
-    perf_counter_start.op = SET_MSR;
-    perf_counter_finish.op = READ_MSR;
-
-    if( do_memory_op(xch, XENMEM_count_perf, &perf_counter_start, sizeof(*perf_counter)) != 0)
-        PERROR("Could not set performance counter");
-    
-    usleep(delay_ms * 1000);
-    
-    if( do_memory_op(xch, XENMEM_count_perf, &perf_counter_finish, sizeof(*perf_counter)) != 0)
-        PERROR("Could not set performance counter");
-    
-//    printf("===perf_counter_start value===\n");
-//    print_rtxen_perf_counter(perf_counter_start);
-//    printf("===perf_counter_finish value===\n"); 
-//    print_rtxen_perf_counter(perf_counter_finish);
-
-    for( cpu_id = 0; cpu_id < RTXEN_CPU_MAXNUM; cpu_id++ )
-    {
-        perf_counter->out[cpu_id].l1I_miss = perf_counter_finish.out[cpu_id].l1I_miss - perf_counter_start.out[cpu_id].l1I_miss;    
-        perf_counter->out[cpu_id].l1I_hit = perf_counter_finish.out[cpu_id].l1I_hit - perf_counter_start.out[cpu_id].l1I_hit;    
-        perf_counter->out[cpu_id].l1D_all = perf_counter_finish.out[cpu_id].l1D_all - perf_counter_start.out[cpu_id].l1D_all;    
-        perf_counter->out[cpu_id].l1D_ldmiss = perf_counter_finish.out[cpu_id].l1D_ldmiss - perf_counter_start.out[cpu_id].l1D_ldmiss;
-        perf_counter->out[cpu_id].l1D_stmiss = perf_counter_finish.out[cpu_id].l1D_stmiss - perf_counter_start.out[cpu_id].l1D_stmiss;    
-        perf_counter->out[cpu_id].l2_all = perf_counter_finish.out[cpu_id].l2_all - perf_counter_start.out[cpu_id].l2_all;    
-        perf_counter->out[cpu_id].l2_miss = perf_counter_finish.out[cpu_id].l2_miss - perf_counter_start.out[cpu_id].l2_miss;    
-        perf_counter->out[cpu_id].l3_all = perf_counter_finish.out[cpu_id].l3_all - perf_counter_start.out[cpu_id].l3_all;
-        perf_counter->out[cpu_id].l3_miss = perf_counter_finish.out[cpu_id].l3_miss - perf_counter_start.out[cpu_id].l3_miss;
-    }
-    
-    return 0;
 }
 
 int xc_show_cache(xc_interface *xch)

@@ -10,7 +10,7 @@ realpath = $(wildcard $(foreach file,$(1),$(shell cd -P $(dir $(file)) && echo "
 -include $(XEN_ROOT)/.config
 
 # A debug build of Xen and tools?
-debug ?= n
+debug ?= y
 debug_symbols ?= $(debug)
 
 # Test coverage support

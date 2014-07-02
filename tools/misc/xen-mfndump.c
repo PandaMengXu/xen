@@ -1,4 +1,5 @@
 /*This tool only works for 32 bit right now! needs change the type for x86_32 bit*/
+#define X86_64
 #ifdef X86_64
 
 #include <xenctrl.h>
@@ -19,14 +20,15 @@ int help_func(int argc, char *argv[])
     fprintf(stderr,
             "Usage: xen-mfndump <command> [args]\n"
             "Commands:\n"
-            "  help                      show this help\n"
-            "  dump-m2p                  show M2P\n"
-            "  dump-p2m    <domid>       show P2M of <domid>\n"
-            "  dump-p2m-pgc <domid>      show P2M and page_count of <domid>\n"
-            "  dump-ptes   <domid> <mfn> show the PTEs in <mfn>\n"
-            "  lookup-pte  <domid> <mfn> find the PTE mapping <mfn>\n"
-            "  memcmp-mfns <domid1> <mfn1> <domid2> <mfn2>\n"
-            "                            compare content of <mfn1> & <mfn2>\n"
+            "  help                                         show this help\n"
+            "  dump-m2p                                     show M2P\n"
+            "  dump-p2m         <domid>                     show P2M of <domid>\n"
+            "  dump-p2m-cache   <domid>  <show present>     show cache color of <domid>\n"
+            "  dump-p2m-pgc     <domid>                     show P2M and page_count of <domid>\n"
+            "  dump-ptes        <domid> <mfn>               show the PTEs in <mfn>\n"
+            "  lookup-pte       <domid> <mfn>               find the PTE mapping <mfn>\n"
+            "  memcmp-mfns      <domid1> <mfn1> <domid2> <mfn2>\n"
+            "                                               compare content of <mfn1> & <mfn2>\n"
            );
 
     return 0;
@@ -63,12 +65,107 @@ int dump_m2p_func(int argc, char *argv[])
     return 0;
 }
 
+/*
+ * dump the cache color that *may* be used by the domID
+ */
+int dump_p2m_cache_func(int argc, char *argv[])
+{
+    struct xc_domain_meminfo minfo;
+    xc_dominfo_t info;
+    unsigned long i, ci;
+    int domid;
+    char cc_reserve[RTXEN_L3CACHE_COLORS]; /*record which cache color is used*/
+    char cc_present[RTXEN_L3CACHE_COLORS];  /*is the cache color in RAM now? */
+    int show_present = 0;
+    
+    if ( argc < 1 )
+    {
+        help_func(0, NULL);
+        return 1;
+    }
+    domid = atoi(argv[0]);
+
+    if( argc >=2 )
+    {
+        if (atoi(argv[1]) == 1){
+            show_present = 1;
+        } else if(atoi(argv[1]) == 0){
+            show_present = 0;
+        } else {
+            help_func(0, NULL);
+            return 1;
+        }
+    }
+    
+    minfo.show_present = show_present;
+
+    if ( xc_domain_getinfo(xch, domid, 1, &info) != 1 ||
+         info.domid != domid )
+    {
+        ERROR("Failed to obtain info for domain %d\n", domid);
+        return -1;
+    }
+
+    /* Meng:Print dominfo*/
+    //printf(" ---Dumping xc_dominfo for domain %d ---\n", domid);
+    //printf("nr_pages=%lu, nr_outstanding_pages=%lu, nr_shared_pages=%lu, nr_paged_pages=%lu\n",
+    //        info.nr_pages,info.nr_outstanding_pages, info.nr_shared_pages, info.nr_paged_pages);
+
+    /* Retrieve all the info about the domain's memory */
+    memset(&minfo, 0, sizeof(minfo));
+    if ( xc_map_domain_meminfo(xch, domid, &minfo) )
+    {
+        ERROR("Could not map domain %d memory information\n", domid);
+        return -1;
+    }
+
+    memset(cc_reserve, 0, sizeof(cc_reserve));
+    memset(cc_present, 0, sizeof(cc_present));
+    for (ci = 0; ci < RTXEN_L3CACHE_COLORS; ci++)
+    {
+        for ( i = 0; i < minfo.p2m_size; i++ )
+        {
+            if( RTXEN_GET_L3CACHE_COLOR(minfo.p2m_table[i]) == ci )
+                cc_reserve[ci] = 1;
+            if( !(minfo.pfn_status[ci] & _PAGE_PRESENT) ) /* not in RAM if the bit is set */
+                cc_present[ci] = 1; /* this color is in RAM now */
+        }
+    }
+
+    printf(" --- Dumping Cache Colors for domain %d ---\n", domid);
+
+    printf(" Index of Cache Colors that is reserved by domain %d\n", domid);
+    if (show_present == 1)
+    {
+        printf("CCIndex \t InRAM\n");
+    }
+    for (ci = 0; ci < RTXEN_L3CACHE_COLORS; ci++)
+    {
+        if( cc_reserve[ci] == 1 )
+            printf("%lu\t\t", ci);
+        if( show_present == 1 && cc_present[ci] == 1 )
+            printf("%d\n", 1);
+    }
+    printf("\n");
+
+    printf(" Index of Cache Colors that are NOT reserved by domain %d\n", domid);
+    for (ci = 0; ci < RTXEN_L3CACHE_COLORS; ci++)
+    {
+        if( cc_reserve[ci] == 0 )
+            printf("%lu ", ci);
+    }
+    printf("\n");
+
+    return 0;
+}
+
 int dump_p2m_func(int argc, char *argv[])
 {
     struct xc_domain_meminfo minfo;
     xc_dominfo_t info;
     unsigned long i;
     int domid;
+    int show_present = 0;
 
     if ( argc < 1 )
     {
@@ -76,6 +173,22 @@ int dump_p2m_func(int argc, char *argv[])
         return 1;
     }
     domid = atoi(argv[0]);
+
+    if( argc >=2 )
+    {
+        if (atoi(argv[1]) == 1){
+            printf("LOG: will show if a page is in RAM or not\n");
+            show_present = 1;
+        } else if(atoi(argv[1]) == 0){
+            printf("LOG: NOT show if a page is in RAM or not\n");
+            show_present = 0;
+        } else {
+            help_func(0, NULL);
+            return 1;
+        }
+    }
+
+    minfo.show_present = show_present;    
 
     if ( xc_domain_getinfo(xch, domid, 1, &info) != 1 ||
          info.domid != domid )
@@ -141,6 +254,12 @@ int dump_p2m_func(int argc, char *argv[])
             case XEN_DOMCTL_PFINFO_L4TAB:
                 printf(" L4 table");
                 break;
+        }
+        if( minfo.show_present == 1 ){
+            if ( !(minfo.pfn_status[i] & _PAGE_PRESENT) )
+                printf(" [In RAM]");
+            else
+                printf(" [Not In RAM]");
         }
 
         printf("\n");
@@ -423,10 +542,12 @@ int dump_p2m_pgc_func(int argc, char *argv[])
                pagetype >> XEN_DOMCTL_PFINFO_LTAB_SHIFT, minfo.pfn_type[i]);
 
         /* Meng: is page in use */
+        /*
         if( pagetype & XEN_DOMCTL_PFINFO_INUSE )
             printf(" [inuse]");
         else
             printf(" [idle]");
+        */
 
         /* Meng:dump mfa type(12 highest bit + 12lowest bit) and PGT_COUNT*/
         //printf(" pfn_type=0x%lx pfn_type&PGT_count_mask=0x%lx",minfo.pfn_type[i], minfo.pfn_type[i] & PGT_count_mask);
@@ -478,6 +599,7 @@ struct {
     { "help", help_func },
     { "dump-m2p", dump_m2p_func },
     { "dump-p2m", dump_p2m_func },
+    { "dump-p2m-cache", dump_p2m_cache_func },
     { "dump-p2m-pgc", dump_p2m_pgc_func},
     { "dump-ptes", dump_ptes_func },
     { "lookup-pte", lookup_pte_func },

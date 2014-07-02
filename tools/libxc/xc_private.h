@@ -298,6 +298,9 @@ void *xc_map_foreign_ranges(xc_interface *xch, uint32_t dom,
 int xc_get_pfn_type_batch(xc_interface *xch, uint32_t dom,
                           unsigned int num, xen_pfn_t *);
 
+int xc_get_pfn_status_batch(xc_interface *xch, uint32_t dom,
+                          unsigned int num, xen_pfn_t *);
+
 void bitmap_64_to_byte(uint8_t *bp, const uint64_t *lp, int nbits);
 void bitmap_byte_to_64(uint64_t *lp, const uint8_t *bp, int nbits);
 

@@ -1510,7 +1510,7 @@ int xc_map_domain_meminfo(xc_interface *xch, int domid,
     int i;
 
     /* Only be initialized once */
-    if ( minfo->pfn_type || minfo->p2m_table )
+    if ( minfo->pfn_type || minfo->pfn_status || minfo->p2m_table )
     {
         errno = EINVAL;
         return -1;
@@ -1571,27 +1571,47 @@ int xc_map_domain_meminfo(xc_interface *xch, int domid,
 
     /* Make space and prepare for getting the PFN types */
     minfo->pfn_type = calloc(sizeof(*minfo->pfn_type), minfo->p2m_size);
+    minfo->pfn_status = calloc(sizeof(*minfo->pfn_status), minfo->p2m_size);
     if ( !minfo->pfn_type )
     {
         PERROR("Could not allocate memory for the PFN types");
         goto failed;
     }
-    /*Meng:get machine address of p2m table's each entry, TODO trace this can get the current using page*/
+    if ( !minfo->pfn_status )
+    {
+        PERROR("Could not allocate memory for the PFN status");
+        goto failed;
+    }
+
+    /*Meng:get machine address of p2m table's each entry*/
     for ( i = 0; i < minfo->p2m_size; i++ )
+    {
         minfo->pfn_type[i] = pfn_to_mfn(i, minfo->p2m_table,
-                                        minfo->guest_width);
+                                        minfo->guest_width); /* machine address */
+        minfo->pfn_status[i] = i; /* virtual adress */
+    }
     /*Meng: now the minfo->pfn_type[i] is machine address 64bit*/
 
-    /* Retrieve PFN types in batches */
+    /* Retrieve PFN types and status in batches */
     for ( i = 0; i < minfo->p2m_size ; i+=1024 )
     {
         int count = ((minfo->p2m_size - i ) > 1024 ) ?
                         1024: (minfo->p2m_size - i);
 
+        /* retrieve page types */
         if ( xc_get_pfn_type_batch(xch, domid, count, minfo->pfn_type + i) )
         {
             PERROR("Could not get %d-eth batch of PFN types", (i+1)/1024);
             goto failed;
+        }
+
+        /* retrieve page status */
+        if ( minfo->show_present == 1 ){
+            if ( xc_get_pfn_status_batch(xch, domid, count, minfo->pfn_status + i) )
+            {
+                PERROR("Could not get %d-eth batch of PFN types", (i+1)/1024);
+                goto failed;
+            }
         }
     }
 

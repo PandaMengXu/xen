@@ -282,6 +282,8 @@ int xc_exchange_page(xc_interface *xch, int domid, xen_pfn_t mfn);
 struct xc_domain_meminfo {
     unsigned int pt_levels;
     unsigned int guest_width;
+    unsigned int show_present; /* show if the page is in RAM? */
+    xen_pfn_t *pfn_status; /* is the page present in RAM?*/
     xen_pfn_t *pfn_type;
     xen_pfn_t *p2m_table;
     unsigned long p2m_size;

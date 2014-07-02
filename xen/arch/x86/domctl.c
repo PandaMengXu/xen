@@ -36,6 +36,11 @@
 #include <asm/xstate.h>
 #include <asm/debugger.h>
 
+#include <asm/page.h>
+/* Meng: walk around the compile error.Meng TODO: fix the include without the hard define*/
+#define GUEST_PAGING_LEVELS 4
+#include <asm/guest_pt.h>
+
 static int gdbsx_guest_mem_io(
     domid_t domid, struct xen_domctl_gdbsx_memio *iop)
 {   
@@ -128,6 +133,110 @@ long arch_do_domctl(
         copyback = 1;
     }
     break;
+    
+    /* get if a memory page is currently in memory or not by page_walk */
+    case XEN_DOMCTL_getpageframeinfo4: 
+    {
+        if (!has_32bit_shinfo(current->domain))
+        {
+            unsigned int n, j;
+            unsigned int num = domctl->u.getpageframeinfo4.num;
+            struct page_info *page;
+            xen_pfn_t *arr;
+            domid_t domid = domctl->domain;
+            struct domain *dom = NULL;
+            struct vcpu *vcpu = NULL;
+
+            printk("%s XEN_DOMCTL_getpageframeinfo4\n", __FUNCTION__);
+            if ( unlikely(num > 1024) ||
+                 unlikely(num != domctl->u.getpageframeinfo4.num) )
+            {
+                ret = -E2BIG;
+                break;
+            }
+
+            dom = get_domain_by_id(domid);
+            if (dom == NULL)
+            {
+                ret = -EDOM;
+                break;
+            }else{
+                printk("%s: I'm going to walk dom %d page table.\n", __FUNCTION__, domid);
+            }
+
+            vcpu = dom->vcpu[0];
+            ASSERT(vcpu != NULL);
+
+            page = alloc_domheap_page(NULL, 0);/* Meng: alloc one page for dom0 */
+            if ( !page )
+            {
+                ret = -ENOMEM;
+                break;
+            }
+            arr = __map_domain_page(page); /* Meng: addr to DIRECTMAP addr? */
+
+            for ( n = ret = 0; n < num; )
+            {
+                unsigned int k = min_t(unsigned int, num - n,
+                                       PAGE_SIZE / sizeof(*arr));
+
+                if ( copy_from_guest_offset(arr,
+                                            domctl->u.getpageframeinfo4.array,
+                                            n, k) ) /* n is index to start, k is the size to copy*/
+                {
+                    ret = -EFAULT;
+                    break;
+                }
+
+                for ( j = 0; j < k; j++ )
+                {
+                    unsigned long type = 0;
+                    walk_t gw;
+                    uint32_t pfec = 0;
+
+                    /* page walk assume page level == 4 (64bit) */
+                    type = guest_walk_tables(vcpu, p2m_get_hostp2m(vcpu->domain), arr[j], &gw, pfec, 
+                                 pagetable_get_mfn(vcpu->arch.guest_table),
+                                 vcpu->arch.paging.shadow.guest_vtable
+                                 );   
+                    /* type = sh_walk_guest_tables(vcpu, arr[j], &gw, pfec); */
+                    arr[j] = type; /* the page is not in RAM when_PAGE_PRESENT bit is set */
+/*
+                    if ( (rc = sh_walk_guest_tables(vcpu, arr[j], &gw, pfec)) != 0 )
+                    {
+                        if( rc & _PAGE_PRESENT )
+                        {
+                            type = RTXEN_DOMCTL_PFSTATUS_NOTPRESENT;
+                        }else{
+                            type = RTXEN_DOMCTL_PFSTATUS_PRESENT;
+                        }
+                    }
+*/
+
+                }
+
+                if ( copy_to_guest_offset(domctl->u.getpageframeinfo4.array,
+                                          n, arr, k) )
+                {
+                    ret = -EFAULT;
+                    break;
+                }
+
+                n += k;
+            }
+
+            page = mfn_to_page(domain_page_map_to_mfn(arr));
+            unmap_domain_page(arr);
+            free_domheap_page(page);
+
+            break;
+        }else{
+            printk("%s XEN_DOMCTL_getpageframeinfo4: not 32bit shinfo\n", __FUNCTION__);
+            ret = -EFAULT;
+            break;
+        }
+        
+    }
 
     case XEN_DOMCTL_getpageframeinfo3:
         if (!has_32bit_shinfo(current->domain))
@@ -159,7 +268,7 @@ long arch_do_domctl(
 
                 if ( copy_from_guest_offset(arr,
                                             domctl->u.getpageframeinfo3.array,
-                                            n, k) )
+                                            n, k) ) /* n is index to start, k is the size to copy*/
                 {
                     ret = -EFAULT;
                     break;
@@ -198,18 +307,16 @@ long arch_do_domctl(
                             break;
                         }
 
-			//if ( (page->u.inuse.type_info & PGT_count_mask) != 0 ) /* Meng: borrow pin bit as inuse bit*/
-			if (page_state_is(page,inuse))
-			    type |= XEN_DOMCTL_PFINFO_INUSE;
-                       
-			 /*if ( page->u.inuse.type_info & PGT_pinned )
+                        //if ( (page->u.inuse.type_info & PGT_count_mask) != 0 ) /* Meng: borrow pin bit as inuse bit*/
+                        /*if (page_state_is(page,inuse))
+                            type |= XEN_DOMCTL_PFINFO_INUSE;
+                        */
+                         if ( page->u.inuse.type_info & PGT_pinned )
                             type |= XEN_DOMCTL_PFINFO_LPINTAB;
-			*/
+                        
                         if ( page->count_info & PGC_broken )
                             type = XEN_DOMCTL_PFINFO_BROKEN;
 
-			//if ( (page->u.inuse.type_info & PGT_count_mask) != 0 )
-			//    type |= XEN_DOMCTL_PFINFO_INUSE;
                     }
 
                     if ( page )
@@ -350,8 +457,8 @@ long arch_do_domctl(
                 ret = -EFAULT;
                 break;
             }
-			++i;
-		}
+                        ++i;
+                }
 
         spin_unlock(&d->page_alloc_lock);
 

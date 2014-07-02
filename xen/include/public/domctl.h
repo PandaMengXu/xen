@@ -139,8 +139,8 @@ DEFINE_XEN_GUEST_HANDLE(xen_domctl_getmemlist_t);
 #define XEN_DOMCTL_PFINFO_XALLOC  (0xeU<<28) /* allocate-only page */
 #define XEN_DOMCTL_PFINFO_BROKEN  (0xdU<<28) /* broken page */
 #define XEN_DOMCTL_PFINFO_LTAB_MASK (0xfU<<28)
-#define XEN_DOMCTL_PFINFO_INUSE   (0x1U<<31) /* Meng: page is in use */
-#define XEN_DOMCTL_PFINFO_LTAB_INUSE_MASK (0xf8UL<<24) /* Meng: use A32 as inuse bit*/
+//#define XEN_DOMCTL_PFINFO_INUSE   (0x1U<<31) /* Meng: page is in use */
+//#define XEN_DOMCTL_PFINFO_LTAB_INUSE_MASK (0xf8UL<<24) /* Meng: use A32 as inuse bit*/
 
 struct xen_domctl_getpageframeinfo {
     /* IN variables. */
@@ -171,6 +171,13 @@ struct xen_domctl_getpageframeinfo3 {
     XEN_GUEST_HANDLE_64(xen_pfn_t) array;
 };
 
+/* XEN_DOMCTL_getpageframeinfo4 */
+struct xen_domctl_getpageframeinfo4 {
+    /* IN variables. */
+    uint64_aligned_t num;
+    /* IN/OUT variables. */
+    XEN_GUEST_HANDLE_64(xen_pfn_t) array;
+};
 
 /*
  * Control shadow pagetables operation
@@ -936,6 +943,7 @@ struct xen_domctl {
 #define XEN_DOMCTL_set_broken_page_p2m           67
 #define XEN_DOMCTL_setnodeaffinity               68
 #define XEN_DOMCTL_getnodeaffinity               69
+#define XEN_DOMCTL_getpageframeinfo4             100
 #define XEN_DOMCTL_gdbsx_guestmemio            1000
 #define XEN_DOMCTL_gdbsx_pausevcpu             1001
 #define XEN_DOMCTL_gdbsx_unpausevcpu           1002
@@ -949,6 +957,7 @@ struct xen_domctl {
         struct xen_domctl_getpageframeinfo  getpageframeinfo;
         struct xen_domctl_getpageframeinfo2 getpageframeinfo2;
         struct xen_domctl_getpageframeinfo3 getpageframeinfo3;
+        struct xen_domctl_getpageframeinfo4 getpageframeinfo4;
         struct xen_domctl_nodeaffinity      nodeaffinity;
         struct xen_domctl_vcpuaffinity      vcpuaffinity;
         struct xen_domctl_shadow_op         shadow_op;
