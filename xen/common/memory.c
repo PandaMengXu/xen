@@ -88,6 +88,9 @@ static void increase_reservation(struct memop_args *a)
     a->nr_done = i;
 }
 
+#define RTXEN_CC_MASK       (0x1f)
+#define RTXEN_CC_SELECT_MASK (0x18)
+#define RTXEN_CC_SELECT     (0)
 static void populate_physmap(struct memop_args *a)
 {
     struct page_info *page;
@@ -134,6 +137,16 @@ static void populate_physmap(struct memop_args *a)
             }
 
             mfn = page_to_mfn(page);
+            /* MX: check the mfn's cache color, only add mfn with certain cache color */
+            /* MX: if mfn is not the cache color, discard this page and try next one */
+            if ( (d->domain_id >= 2) && 
+                 (mfn & RTXEN_CC_SELECT_MASK) != RTXEN_CC_SELECT )
+            {
+                --i;
+                printk("%s mfn=%lx & 0x18 != 0, not alloc to dom %d\n", __FUNCTION__, mfn, d->domain_id);
+                continue;
+            }
+
             guest_physmap_add_page(d, gpfn, mfn, a->extent_order);
 
             if ( !paging_mode_translate(d) )
