@@ -1593,27 +1593,27 @@ int xc_map_domain_meminfo(xc_interface *xch, int domid,
     /*Meng: now the minfo->pfn_type[i] is machine address 64bit*/
 
     /* Retrieve PFN types and status in batches */
-    for ( i = 0; i < minfo->p2m_size ; i+=1024 )
-    {
-        int count = ((minfo->p2m_size - i ) > 1024 ) ?
-                        1024: (minfo->p2m_size - i);
-
-        /* retrieve page types */
-        if ( xc_get_pfn_type_batch(xch, domid, count, minfo->pfn_type + i) )
-        {
-            PERROR("Could not get %d-eth batch of PFN types", (i+1)/1024);
-            goto failed;
-        }
-
-        /* retrieve page status */
-        if ( minfo->show_present == 1 ){
-            if ( xc_get_pfn_status_batch(xch, domid, count, minfo->pfn_status + i) )
-            {
-                PERROR("Could not get %d-eth batch of PFN types", (i+1)/1024);
-                goto failed;
-            }
-        }
-    }
+//    for ( i = 0; i < minfo->p2m_size ; i+=1024 )
+//    {
+//        int count = ((minfo->p2m_size - i ) > 1024 ) ?
+//                        1024: (minfo->p2m_size - i);
+//
+//        /* retrieve page types */
+//        if ( xc_get_pfn_type_batch(xch, domid, count, minfo->pfn_type + i) )
+//        {
+//            PERROR("Could not get %d-eth batch of PFN types", (i+1)/1024);
+//            goto failed;
+//        }
+//
+//        /* retrieve page status */
+//        if ( minfo->show_present == 1 ){
+//            if ( xc_get_pfn_status_batch(xch, domid, count, minfo->pfn_status + i) )
+//            {
+//                PERROR("Could not get %d-eth batch of PFN types", (i+1)/1024);
+//                goto failed;
+//            }
+//        }
+//    }
 
     return 0;
 

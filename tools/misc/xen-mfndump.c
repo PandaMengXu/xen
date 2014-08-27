@@ -125,7 +125,7 @@ int dump_p2m_cache_func(int argc, char *argv[])
     {
         for ( i = 0; i < minfo.p2m_size; i++ )
         {
-            if( RTXEN_GET_L3CACHE_COLOR(minfo.p2m_table[i]) == ci )
+            if( RTXEN_GET_L3CACHE_COLOR_MFN(minfo.p2m_table[i]) == ci )
                 cc_reserve[ci] = 1;
             if( !(minfo.pfn_status[ci] & _PAGE_PRESENT) ) /* not in RAM if the bit is set */
                 cc_present[ci] = 1; /* this color is in RAM now */

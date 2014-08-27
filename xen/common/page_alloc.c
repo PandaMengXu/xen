@@ -1450,7 +1450,8 @@ int assign_pages(
         goto fail;
     }
 
-    if ( !(memflags & MEMF_no_refcount) )
+    /* MX: add d->domain_id < 2 to skip the sanity check*/
+    if ( !(memflags & MEMF_no_refcount) && d->domain_id < 2)
     {
         if ( unlikely((d->tot_pages + (1 << order)) > d->max_pages) )
         {
