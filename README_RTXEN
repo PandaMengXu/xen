@@ -9,6 +9,10 @@ For more installation information, please refer to ./install_rtxen/README
 =========================
 Progress
 =========================
-sched-rtglobal gedf/gdm and sched-rtpartition pedf/pdm are  developed by Sisu.
+sched-rtglobal gedf/gdm and sched-rtpartition pedf/pdm are  developed by Sisu and Meng
 
 sched-rtglobal llf is under development
+
+=====================
+This repository is for Cache-Aware RT-Xen which partition cache for different domains and test the performance. 
+The branch cache is the main working branch for the cache-aware RT-Xen.
