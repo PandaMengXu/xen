@@ -1,0 +1,56 @@
+SEND PATCH ONE BY ONE! AVOID CC Jan Beulich on pure tools side changes. (Only cc. Jan Beulich on hypervisor change, which is patch 1/4)
+
+git send-email xen-base..rtxen-v1.5-RFC-v2 --subject-prefix="RFC v2" --compose --to=xumengpanda@gmail.com
+git send-email xen-base..rtxen-v1.64-RFC-v3-patch-v1 --subject-prefix="PATCH v1" --compose --to=xumengpanda@gmail.com
+
+git send-email HEAD~1..HEAD --subject-prefix="PATCH for 4.5 v4 4/4" --to=xumengpanda@gmail.com
+
+Prefix=[PATCH
+for-4.5 0/N]
+
+--to=xen-devel@lists.xen.org --cc=dario.faggioli@citrix.com --cc=ian.campbell@citrix.com --cc=george.dunlap@eu.citrix.com --cc=stefano.stabellini@eu.citrix.com --cc=ian.jackson@eu.citrix.com --cc=xumengpanda@gmail.com --cc=xisisu@gmail.com --cc=lichong659@gmail.com --cc=dgolomb@seas.upenn.edu --cc=chaowang@wustl.edu --cc=ptxlinh@gmail.com --cc=lu@cse.wustl.edu --cc=JBeulich@suse.com
+
+How to send each commit to different people?
+    So two git features:
+    * If you write "CC: Name <address@blah.blah>" in your commit message,
+    git send-email will CC that person *just for that commit*
+    * Anything in the description under a line starting with "---" will be
+    discarded
+
+    So you can write your message like this:
+    8<--------------------------------------
+    libxl: A one-line example.
+
+    This is just an example commit.
+
+    Signed-off-by: George Dunlap <george.dunlap@eu.citrix.com>
+    ---
+    CC: Ian Campbell <ian.campbell@citrix.com>
+    CC: Wei Liu <wei.liu@citrix.com>
+    8<--------------------------------------
+
+    And when you do git-send-email, it will automatically CC Ian and Wei
+    (and only them) for this patch.
+
+
+cc list
+--to=xen-devel@lists.xen.org
+--cc=ian.campbell@citrix.com
+--cc=george.dunlap@eu.citrix.com
+--cc=stefano.stabellini@eu.citrix.com
+--cc=ian.jackson@eu.citrix.com
+--cc=JBeulich@suse.com
+
+--cc=xumengpanda@gmail.com
+--cc=xisisu@gmail.com
+--cc=lichong659@gmail.com
+--cc=dgolomb@seas.upenn.edu
+
+Also FWIW you can use
+         git send-email --in-reply-to=<message.id@domain.example>
+to hook the series onto a 0/N mail which you sent manually.
+
+FWIW git format-patch has --cover option to nicely generate a cover
+letter with some useful diffstat in it. Then you can add in your stuffs
+in cover letter and send that along with other patches all in one go
+with git send-email.
